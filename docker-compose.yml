@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: football_system_db
+    environment:
+      POSTGRES_USER: football
+      POSTGRES_PASSWORD: football_secure_pass
+      POSTGRES_DB: football_data
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U football -d football_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  system_a:
+    build:
+      context: ./system_a
+      dockerfile: Dockerfile
+    container_name: football_system_a
+    environment:
+      - DATABASE_URL=postgresql://football:football_secure_pass@postgres:5432/football_data
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    volumes:
+      - ./system_a:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  system_b:
+    build:
+      context: ./system_b
+      dockerfile: Dockerfile
+    container_name: football_system_b
+    environment:
+      - SYSTEM_A_API_URL=http://system_a:8000
+    volumes:
+      - ./system_b:/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      system_a:
+        condition: service_healthy
+    restart: unless-stopped
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  default:
+    name: football_system_network

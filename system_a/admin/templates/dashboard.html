@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - 足球数据系统 A{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>📊 系统仪表盘</h2>
+    <button class="btn" onclick="refreshData()">🔄 刷新数据</button>
+</div>
+
+<!-- 统计卡片 -->
+<div class="stats-grid">
+    <div class="stat-card total">
+        <div class="label">总比赛数</div>
+        <div class="value">{{ stats.total_matches|default(0) }}</div>
+    </div>
+    <div class="stat-card pending">
+        <div class="label">待爬取</div>
+        <div class="value">{{ stats.pending|default(0) }}</div>
+    </div>
+    <div class="stat-card completed">
+        <div class="label">已完成</div>
+        <div class="value">{{ stats.completed|default(0) }}</div>
+    </div>
+    <div class="stat-card error">
+        <div class="label">失败</div>
+        <div class="value">{{ stats.error|default(0) }}</div>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="label">活跃任务</div>
+        <div class="value">{{ stats.active_jobs|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">联赛数量</div>
+        <div class="value">{{ stats.leagues_count|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">赛季数量</div>
+        <div class="value">{{ stats.seasons_count|default(0) }}</div>
+    </div>
+</div>
+
+<!-- 最近任务 -->
+<div class="card">
+    <h3>📋 最近任务</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>联赛</th>
+                <th>赛季</th>
+                <th>状态</th>
+                <th>进度</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in recent_jobs %}
+            <tr>
+                <td>{{ job.job_id }}</td>
+                <td>{{ job.league_id or '-' }}</td>
+                <td>{{ job.season_label or '-' }}</td>
+                <td><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+                <td>{{ job.completed_matches }}/{{ job.total_matches }}</td>
+                <td>{{ job.created_at }}</td>
+                <td>
+                    {% if job.status == 'running' %}
+                    <button class="btn btn-danger btn-sm" onclick="stopJob({{ job.id }})">停止</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: #999;">暂无任务</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 快速操作 -->
+<div class="card">
+    <h3>🚀 快速操作</h3>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <a href="/admin/tasks?action=new" class="btn btn-success">➕ 新建爬取任务</a>
+        <a href="/admin/leagues?action=new" class="btn">➕ 添加联赛</a>
+        <a href="/admin/quality" class="btn">📈 查看数据质量</a>
+    </div>
+</div>
+
+<script>
+async function stopJob(jobId) {
+    if (!confirm('确定要停止这个任务吗？')) return;
+    try {
+        const res = await fetch(`/api/crawl/stop/${jobId}`, { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || '任务已停止');
+        refreshData();
+    } catch (e) {
+        alert('操作失败: ' + e);
+    }
+}
+</script>
+{% endblock %}

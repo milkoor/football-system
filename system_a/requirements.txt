@@ -1,0 +1,35 @@
+# 系统 A：数据基础设施依赖
+
+# Web 框架
+fastapi
+uvicorn
+jinja2
+
+# 数据库
+psycopg2-binary
+sqlalchemy
+alembic
+
+# 爬虫
+requests
+beautifulsoup4
+lxml
+
+# 代理
+urllib3
+
+# 数据处理（可选）
+# pandas
+openpyxl
+
+# 任务调度
+apscheduler
+
+# 工具
+python-dotenv
+pydantic
+pydantic-settings
+httpx
+
+# 日志
+python-json-logger

@@ -1,0 +1,26 @@
+# 系统 B：量化分析平台依赖
+
+# Web 框架 (Streamlit)
+streamlit==1.40.0
+
+# 数据处理
+pandas==2.2.0
+numpy==1.26.3
+openpyxl==3.1.2
+
+# 任务调度
+apscheduler==3.10.4
+
+# 数据库
+psycopg2-binary==2.9.9
+
+# API 客户端
+httpx==0.26.0
+
+# 工具
+python-dotenv==1.0.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# 日志
+python-json-logger==2.0.7
