@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}任务管理 - 足球数据系统 A{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>🔄 任务管理</h2>
+    <div>
+        <button class="btn btn-success" onclick="showModal('newTaskModal')">➕ 新建任务</button>
+    </div>
+</div>
+
+<!-- 任务统计 -->
+<div class="stats-grid">
+    <div class="stat-card pending">
+        <div class="label">等待中</div>
+        <div class="value">{{ job_stats.pending|default(0) }}</div>
+    </div>
+    <div class="stat-card running">
+        <div class="label">进行中</div>
+        <div class="value">{{ job_stats.running|default(0) }}</div>
+    </div>
+    <div class="stat-card completed">
+        <div class="label">已完成</div>
+        <div class="value">{{ job_stats.completed|default(0) }}</div>
+    </div>
+    <div class="stat-card error">
+        <div class="label">失败</div>
+        <div class="value">{{ job_stats.failed|default(0) }}</div>
+    </div>
+</div>
+
+<!-- 筛选 -->
+<div class="card">
+    <form method="get" style="display: flex; gap: 15px; align-items: flex-end;">
+        <div class="form-group" style="margin-bottom: 0; flex: 1;">
+            <label>状态</label>
+            <select name="status">
+                <option value="">全部</option>
+                <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>等待中</option>
+                <option value="running" {% if filters.status == 'running' %}selected{% endif %}>进行中</option>
+                <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
+                <option value="failed" {% if filters.status == 'failed' %}selected{% endif %}>失败</option>
+            </select>
+        </div>
+        <button type="submit" class="btn">筛选</button>
+    </form>
+</div>
+
+<!-- 任务列表 -->
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>联赛ID</th>
+                <th>赛季</th>
+                <th>状态</th>
+                <th>总场次</th>
+                <th>已完成</th>
+                <th>失败</th>
+                <th>开始时间</th>
+                <th>完成时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td>{{ job.job_id }}</td>
+                <td>{{ job.league_id or '-' }}</td>
+                <td>{{ job.season_label or '-' }}</td>
+                <td>
+                    <span class="badge badge-{{ job.status }}">
+                        {% if job.status == 'pending' %}等待中
+                        {% elif job.status == 'running' %}进行中
+                        {% elif job.status == 'completed' %}已完成
+                        {% elif job.status == 'failed' %}失败
+                        {% else %}{{ job.status }}{% endif %}
+                    </span>
+                </td>
+                <td>{{ job.total_matches }}</td>
+                <td>{{ job.completed_matches }}</td>
+                <td>{{ job.failed_matches }}</td>
+                <td>{{ job.started_at or '-' }}</td>
+                <td>{{ job.completed_at or '-' }}</td>
+                <td>
+                    {% if job.status == 'pending' or job.status == 'running' %}
+                    <button class="btn btn-danger btn-sm" onclick="stopJob({{ job.id }})">停止</button>
+                    {% endif %}
+                    {% if job.status == 'failed' %}
+                    <button class="btn btn-sm" onclick="retryJob({{ job.id }})">重试</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999;">暂无任务</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- 分页 -->
+    {% if total_pages > 1 %}
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+        {% if page > 1 %}
+        <a href="?page={{ page-1 }}" class="btn btn-sm">上一页</a>
+        {% endif %}
+        <span style="padding: 8px;">第 {{ page }} / {{ total_pages }} 页</span>
+        {% if page < total_pages %}
+        <a href="?page={{ page+1 }}" class="btn btn-sm">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- 新建任务弹窗 -->
+<div class="modal" id="newTaskModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>新建爬取任务</h3>
+            <button class="modal-close" onclick="hideModal('newTaskModal')">&times;</button>
+        </div>
+        <form id="newTaskForm">
+            <div class="form-group">
+                <label>联赛（可选）</label>
+                <select name="league_id">
+                    <option value="">全部联赛</option>
+                    {% for league in leagues %}
+                    <option value="{{ league.id }}">{{ league.country }} - {{ league.league_name_tw }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>赛季</label>
+                <input type="text" name="season_label" value="2024-2025" placeholder="如：2024-2025">
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">启动任务</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('newTaskForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {};
+    if (formData.get('league_id')) {
+        data.league_id = parseInt(formData.get('league_id'));
+    }
+    if (formData.get('season_label')) {
+        data.season_label = formData.get('season_label');
+    }
+    try {
+        const res = await fetch('/api/crawl/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (res.ok) {
+            alert('任务已启动: ' + result.job_id);
+            hideModal('newTaskModal');
+            location.reload();
+        } else {
+            alert('启动失败: ' + (result.detail || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败: ' + e);
+    }
+});
+
+async function stopJob(jobId) {
+    if (!confirm('确定要停止这个任务吗？')) return;
+    try {
+        const res = await fetch(`/api/crawl/stop/${jobId}`, { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || '任务已停止');
+        location.reload();
+    } catch (e) {
+        alert('操作失败: ' + e);
+    }
+}
+
+async function retryJob(jobId) {
+    if (!confirm('确定要重试这个任务吗？')) return;
+    try {
+        const res = await fetch('/api/crawl/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const result = await res.json();
+        if (res.ok) {
+            alert('新任务已启动: ' + result.job_id);
+            location.reload();
+        } else {
+            alert('重试失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e);
+    }
+}
+</script>
+{% endblock %}

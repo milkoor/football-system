@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}联赛管理 - 足球数据系统 A{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>🏆 联赛管理</h2>
+    <div>
+        <button class="btn" onclick="showModal('addLeagueModal')">➕ 添加联赛</button>
+    </div>
+</div>
+
+<!-- 筛选 -->
+<div class="card">
+    <form method="get" style="display: flex; gap: 15px; align-items: flex-end;">
+        <div class="form-group" style="margin-bottom: 0; flex: 1;">
+            <label>国家</label>
+            <input type="text" name="country" value="{{ filters.country or '' }}" placeholder="筛选国家...">
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+            <label>状态</label>
+            <select name="enabled">
+                <option value="">全部</option>
+                <option value="true" {% if filters.enabled == 'true' %}selected{% endif %}>启用</option>
+                <option value="false" {% if filters.enabled == 'false' %}selected{% endif %}>禁用</option>
+            </select>
+        </div>
+        <button type="submit" class="btn">筛选</button>
+    </form>
+</div>
+
+<!-- 联赛列表 -->
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>国家</th>
+                <th>联赛名称</th>
+                <th>联赛ID</th>
+                <th>赛季数</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for league in leagues %}
+            <tr>
+                <td>{{ league.id }}</td>
+                <td>{{ league.country }}</td>
+                <td>{{ league.league_name_tw }}</td>
+                <td>{{ league.league_id }}</td>
+                <td>{{ league.seasons_count|default(0) }}</td>
+                <td>
+                    <span class="badge badge-{% if league.enabled %}completed{% else %}error{% endif %}">
+                        {% if league.enabled %}启用{% else %}禁用{% endif %}
+                    </span>
+                </td>
+                <td>{{ league.created_at }}</td>
+                <td>
+                    <div class="actions">
+                        <button class="btn btn-sm" onclick="editLeague({{ league.id }})">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteLeague({{ league.id }})">删除</button>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999;">暂无联赛数据</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- 分页 -->
+    {% if total_pages > 1 %}
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+        {% if page > 1 %}
+        <a href="?page={{ page-1 }}" class="btn btn-sm">上一页</a>
+        {% endif %}
+        <span style="padding: 8px;">第 {{ page }} / {{ total_pages }} 页</span>
+        {% if page < total_pages %}
+        <a href="?page={{ page+1 }}" class="btn btn-sm">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- 添加联赛弹窗 -->
+<div class="modal" id="addLeagueModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>添加联赛</h3>
+            <button class="modal-close" onclick="hideModal('addLeagueModal')">&times;</button>
+        </div>
+        <form id="addLeagueForm">
+            <div class="form-group">
+                <label>国家 *</label>
+                <input type="text" name="country" required placeholder="如：英格兰">
+            </div>
+            <div class="form-group">
+                <label>联赛 ID *</label>
+                <input type="number" name="league_id" required placeholder="网站上的联赛ID">
+            </div>
+            <div class="form-group">
+                <label>联赛名称（繁体）*</label>
+                <input type="text" name="league_name_tw" required placeholder="如：英超">
+            </div>
+            <div class="form-group">
+                <label>联赛名称（简体）</label>
+                <input type="text" name="league_name_zh" placeholder="如：英超">
+            </div>
+            <div class="form-group">
+                <label>显示顺序</label>
+                <input type="number" name="display_order" value="0">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="enabled" checked> 启用
+                </label>
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">保存</button>
+        </form>
+    </div>
+</div>
+
+<!-- 编辑联赛弹窗 -->
+<div class="modal" id="editLeagueModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>编辑联赛</h3>
+            <button class="modal-close" onclick="hideModal('editLeagueModal')">&times;</button>
+        </div>
+        <form id="editLeagueForm">
+            <input type="hidden" name="id" id="editLeagueId">
+            <div class="form-group">
+                <label>国家 *</label>
+                <input type="text" name="country" id="editCountry" required>
+            </div>
+            <div class="form-group">
+                <label>联赛名称（繁体）*</label>
+                <input type="text" name="league_name_tw" id="editLeagueNameTw" required>
+            </div>
+            <div class="form-group">
+                <label>显示顺序</label>
+                <input type="number" name="display_order" id="editDisplayOrder">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="enabled" id="editEnabled"> 启用
+                </label>
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">保存修改</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('addLeagueForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    data.enabled = !!data.enabled;
+    try {
+        const res = await fetch('/api/leagues', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (res.ok) {
+            alert('添加成功');
+            hideModal('addLeagueModal');
+            location.reload();
+        } else {
+            const err = await res.json();
+            alert('添加失败: ' + (err.detail || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败: ' + e);
+    }
+});
+
+async function editLeague(id) {
+    try {
+        const res = await fetch(`/api/leagues/${id}`);
+        const league = await res.json();
+        document.getElementById('editLeagueId').value = league.id;
+        document.getElementById('editCountry').value = league.country;
+        document.getElementById('editLeagueNameTw').value = league.league_name_tw;
+        document.getElementById('editDisplayOrder').value = league.display_order;
+        document.getElementById('editEnabled').checked = league.enabled;
+        showModal('editLeagueModal');
+    } catch (e) {
+        alert('获取数据失败: ' + e);
+    }
+}
+
+document.getElementById('editLeagueForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    data.enabled = !!data.enabled;
+    data.league_name_zh = data.league_name_tw;
+    const id = data.id;
+    delete data.id;
+    try {
+        const res = await fetch(`/api/leagues/${id}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (res.ok) {
+            alert('修改成功');
+            hideModal('editLeagueModal');
+            location.reload();
+        } else {
+            alert('修改失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e);
+    }
+});
+
+async function deleteLeague(id) {
+    if (!confirm('确定要删除这个联赛吗？')) return;
+    try {
+        const res = await fetch(`/api/leagues/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            alert('删除成功');
+            location.reload();
+        } else {
+            alert('删除失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e);
+    }
+}
+</script>
+{% endblock %}

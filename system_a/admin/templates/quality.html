@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}数据质量 - 足球数据系统 A{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>📈 数据质量监控</h2>
+    <button class="btn" onclick="refreshData()">🔄 刷新</button>
+</div>
+
+<!-- 概览统计 -->
+<div class="stats-grid">
+    <div class="stat-card total">
+        <div class="label">总比赛数</div>
+        <div class="value">{{ stats.total_matches|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">有赔率数据</div>
+        <div class="value">{{ stats.with_odds|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">完整度</div>
+        <div class="value">{{ stats.completeness_rate|default(0) }}%</div>
+    </div>
+    <div class="stat-card error">
+        <div class="label">数据异常</div>
+        <div class="value">{{ stats.anomalies|default(0) }}</div>
+    </div>
+</div>
+
+<!-- 联赛数据完整性 -->
+<div class="card">
+    <h3>🏆 联赛数据完整性</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>联赛</th>
+                <th>赛季</th>
+                <th>总场次</th>
+                <th>已爬取</th>
+                <th>完成率</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in league_stats %}
+            <tr>
+                <td>{{ item.league_name }}</td>
+                <td>{{ item.season }}</td>
+                <td>{{ item.total }}</td>
+                <td>{{ item.completed }}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="flex: 1; height: 8px; background: #eee; border-radius: 4px; overflow: hidden;">
+                            <div style="width: {{ item.rate }}%; height: 100%; background: {% if item.rate >= 90 %}#27ae60{% elif item.rate >= 70 %}#f39c12{% else %}#e74c3c{% endif %};"></div>
+                        </div>
+                        <span>{{ item.rate }}%</span>
+                    </div>
+                </td>
+                <td>
+                    {% if item.rate >= 90 %}
+                    <span class="badge badge-completed">良好</span>
+                    {% elif item.rate >= 70 %}
+                    <span class="badge badge-pending">一般</span>
+                    {% else %}
+                    <span class="badge badge-error">需关注</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: #999;">暂无数据</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 缺失数据列表 -->
+<div class="card">
+    <h3>⚠️ 待爬取比赛（最近20条）</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>比赛ID</th>
+                <th>联赛</th>
+                <th>赛季</th>
+                <th>主队</th>
+                <th>客队</th>
+                <th>比赛时间</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in pending_matches %}
+            <tr>
+                <td>{{ match.match_id }}</td>
+                <td>{{ match.league_name or '-' }}</td>
+                <td>{{ match.season or '-' }}</td>
+                <td>{{ match.home_team or '-' }}</td>
+                <td>{{ match.away_team or '-' }}</td>
+                <td>{{ match.match_time or '-' }}</td>
+                <td>
+                    <span class="badge badge-pending">{{ match.crawl_status }}</span>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: #999;">无待爬取比赛</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 错误数据列表 -->
+<div class="card">
+    <h3>❌ 爬取失败（最近20条）</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>比赛ID</th>
+                <th>联赛</th>
+                <th>重试次数</th>
+                <th>错误信息</th>
+                <th>最后尝试</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in error_matches %}
+            <tr>
+                <td>{{ match.match_id }}</td>
+                <td>{{ match.league_name or '-' }}</td>
+                <td>{{ match.retry_count }}</td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ match.error_message or '-' }}</td>
+                <td>{{ match.last_synced or '-' }}</td>
+                <td>
+                    <button class="btn btn-sm" onclick="retryMatch({{ match.match_id }})">重试</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: #999;">无失败记录</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function retryMatch(matchId) {
+    if (!confirm('确定要重试爬取这个比赛吗？')) return;
+    // TODO: 实现单个比赛重试
+    alert('功能开发中');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,221 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "//www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="//www.w3.org/1999/xhtml">
+<head>
+    
+
+
+<title>2025-2026赛季英超赛程资料统计-新球体育-球探体育</title>
+        <meta name="Keywords" content="2025-2026赛季英超,英超赛程资料统计,新球体育" />
+        <meta name="Description" content="球探体育提供2025-2026赛季英超赛程资料统计，包含英超赛程赛果、比分指数、英超积分、积分榜排名等专业体育数据！" />
+<script type="text/javascript" src="/Script/Lang.js?l=0"></script>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<link href="/Style/info_css1.css" rel="stylesheet" type="text/css" />
+<script src="/jsData/leftData/leftData.js" type="text/javascript"></script>
+<script src="/jsData/leftData/leftHtml.js" type="text/javascript"></script>
+
+    <script>
+        var meta = document.getElementsByTagName('meta');
+        for (i in meta) {
+            if (typeof meta[i].name != "undefined" && meta[i].name.toLowerCase() == "description") {
+                if (0 == 0) {
+                    meta[i].content = "球探体育提供2025-2026赛季英超赛程资料统计，包含英超赛程赛果、比分指数、英超积分、积分榜排名等专业体育数据！";
+                } else {
+                    meta[i].content = "球探體育提供2025-2026賽季英超賽程資料統計，包含英超賽程賽果、比分指數、英超積分、積分榜排名等專業體育數據！";
+                }
+                break;
+            }
+        }         
+    </script>
+    <script type="text/javascript" charset="utf-8" src="/Script/BomHelper.js"></script>
+    <script type="text/javascript" src="/Script/TimeZone.js"></script>
+    <script type="text/javascript">var selectSeason = '2025-2026';var lang = 0;var selectRound = -1; var jh = new Object();var teamHelper = new Object();var SclassID = 36;var SubSclassID = 0; </script><script type="text/javascript"  src="/jsData/matchResult/2025-2026/s36.js?version=2026042116"></script><script type="text/javascript"  src="/jsData/LeagueSeason/sea36.js"></script>
+    <script language="javascript" src="/Script/LeagueOdds.js" type="text/javascript"></script>
+    <script type="text/javascript" src="/Script/page/league.js"></script>
+    <script type="text/javascript" src="/Script/page/otherCount.js"></script>
+    <script type="text/javascript">
+        var leftDataObj = null;
+        //资料库windows.onload函数
+        function infoBaseInit() {
+            try {
+                if (selectRound == -1)
+                    selectRound = arrLeague[8];
+                //右手边
+                loadLang(lang);
+                //中间
+
+                LoadTitleLeft();
+                titleRightSeason();
+                titleRightTeam();
+                InitOdds(SclassID, SubSclassID, selectSeason,selectRound,function (data) {
+                    showRound();
+                    showSche();
+                    //showTotalScore();
+                    showHtml(1);
+                    GetOddsCount(selectRound);
+                    //scoreRoundSelect();
+                    //赛制
+                    document.getElementById("sclassRule").innerHTML = arrLeague[12];
+                    //页面更新时间
+                    document.getElementById("lastUpdateTime").innerHTML = "页面最后更新时间:" + lastUpdateTime;
+
+                    document.getElementById("spnLoading").style.display = "none";
+                    document.getElementById("i_main").style.display = "block";
+                });
+            } catch (e) {
+
+                document.getElementById("subSpnLoading").innerHTML = "数据加载出错！！！";
+            }
+        }
+
+    </script>
+</head>
+<body>
+    
+    <link href="/Style/css1.css" type="text/css" rel="stylesheet" />
+    <script src="/Script/Top.js" type="text/javascript"></script>
+    <div id="info">
+        <!--左边 begin-->
+        <div id="left" style="height:auto">
+            <div id="new_date_me"></div>
+            <div class="search_2">
+                <div class="search_title"></div>
+                <label for="Radio2" class="el-radio" >
+                <input type="radio" name="radiobutton" id="Radio2" value="2" checked="checked">
+                <span class="el-radio-style">球队</span>
+                </label>
+                <label for="Radio1" class="el-radio" >
+                <input type="radio" name="radiobutton" id="Radio1" value="1"  >
+                <span class="el-radio-style">球员</span>
+                </label>
+<input name="textfield" type="text" size="21" id="Text1" placeholder="请输入搜索内容" style="padding-left:5px;width:140px;line-height:26px" />
+                <div class="btn" onclick="searchTeamOrPlayer()">搜 索</div>
+            </div>
+        </div>
+        <!--end 左边-->
+        <script type="text/javascript">
+            leftDataObj = new LeftData(SclassID, "League.aspx?", "CupMatch.aspx?");
+        </script>
+        <!--中间内容 begin-->
+        <div id="i_main" style="display:none">
+            <!-- 中间内容 -->
+            <div class="info_title" id="InfoTitle">
+                <div class="info_title_left" id="TitleLeft">
+                </div><div class="info_title_right" id="TitleRight">
+                    <select name="seasonList" id="seasonList" onchange="changeSeason()"></select>
+                    <select name='dropScoreTeam' id='dropScoreTeam' onchange="changeTeam()"></select>
+                </div>
+            </div>
+
+
+    <div class="sub_menu league">
+        <a href="/cn/League/2025-2026/36.html"><i></i>赛程资料统计</a>
+            <a href="/cn/TechList/2025-2026/36.html"><i></i>球员数据</a>
+         <a href="/cn/bestTeam/2025-2026/36.html"><i></i>最佳阵容</a>  
+         <a href="/cn/TeamHeadPage/2025-2026/36.html"><i></i>球队资料</a>
+         <a href="/cn/FirGetLose/2025-2026/36.html"><i></i>先入球/失球</a>
+         <a href="/cn/NoGetLose/2025-2026/36.html"><i></i>没入球/失球</a>
+         <a class="off" href="/cn/Contrast/2025-2026/36.html"><i></i>标准亚洲盘对照</a>
+    </div>
+
+<script type="text/javascript" src="/Script/jquery-1.7.1.min.js"></script>
+<script type="text/javascript">
+    (function () {
+        var obj = $(".sub_menu a:contains(赛程资料统计)");
+        if (obj.prev())
+            obj.prev().addClass("off");
+        obj.removeClass("off").addClass("on");
+    })();
+</script>
+
+            <div class="data">
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" id="Table1">
+                    <tr>
+                        <td id="showRound"></td>
+                    </tr>
+                </table>
+                <div id="oddsStatistics" class="round"></div>
+                <div class="tdsolid">
+                    <table width="100%" border="0" cellpadding="2" cellspacing="0" class="tdlink fixedtable" id="Table3">
+                        <tr class="th-bg">
+							<th width="5%" class="rl">轮次</th>
+							<th width="9%">时间</th>
+							<th width="18%" class="ll fr-p">主队</th>
+							<th width="7%">比分</th>
+							<th width="18%" class="rl fl-p">客队</th>
+							<th colspan="3" width="24%" class="rl">
+								
+								<div class="oddtit">
+									<div class="odds bl">
+										<span><input type="radio" name="oddsType" onclick="oddsChange(this)" id="rdoL" checked=checked value="L" /> 亚让</span>
+										<span><input type="radio" name="oddsType" onclick="oddsChange(this)" id="rdoT" value="T" /> 总进球</span>
+										<span><input type="radio" name="oddsType" onclick="oddsChange(this)" id="rdoO" value="O" /> 胜平负</span>
+									</div>
+								    <span>初盘: </span> <select style="width:95px;" onchange="OddsCompanyChange(this)" name="" id="oddsCompany"></select>
+                                </div>
+							</th>
+							<th width="9%" class="rl">资料</th>
+							<th width="5%">半场</th>   
+                        </tr>
+                    </table>
+                </div>
+                <div>
+                    <div class="nav_select">
+                        <ul class="odds_com" style="clear:both;">
+                            <li id="li1"><a style="cursor:pointer;" onClick="showHtml(1);return false;">积分榜</a></li>
+                            <li id="li2"><a style="cursor:pointer;" onClick="showHtml(2);return false;">亚让</a></li>
+                            <li id="li3"><a style="cursor:pointer;" onClick="showHtml(3);return false;">大小球</a></li>
+                            <li id="li4"><a style="cursor:pointer;" onClick="showHtml(4);return false;">常见赛果</a></li>
+                            <li id="li5"><a style="cursor:pointer;" onClick="showHtml(5);return false;">单双数</a></li>
+                            <li id="li6"><a style="cursor:pointer;" onClick="showHtml(6);return false;">入球数</a></li>
+                            <li id="li7"><a style="cursor:pointer;" onClick="showHtml(7);return false;">半/全场</a></li>
+                            <li id="li8"><a style="cursor:pointer;" onClick="showHtml(8);return false;">入球时间</a></li>
+                            <li id="li9"><a style="cursor:pointer;" onClick="showHtml(9);return false;">波胆</a></li>
+                            <li id="li10"><a style="cursor:pointer;" onClick="showHtml(10);return false;">净胜/负</a></li>
+                            <li id="li11"><a style="cursor:pointer;" onClick="showHtml(11);return false;">入/失球</a></li>
+                        </ul>
+                        <div style="width: 100%"><ul class="menuUl" id="menuUl1"></ul></div>
+                    </div>
+                </div>
+                <div id="nav_bottom" class='nav_select_bottom'></div>
+                <div id='tableId' class='data'></div>
+                <div class="main_title" id="norMainTitle" style="display:none;">最常见赛果详细统计</div>
+                <div class="data" id="norMainData" style="display:none;">
+                </div>
+                <div id="countTitle1" class='main_title' style="display:none;">全场让球盘路数据统计</div>
+                <div id='allTongJi1' class='data' style="display:none;"></div>
+                <div id="countTitle2" class='main_title' style="display:none;">半场让球盘路数据统计</div>
+                <div id='allTongJi2' class='data' style="display:none;"></div>
+                <div id="Table4">
+                <div class="h-title"><strong>赛&nbsp;&nbsp;制</strong><span id="userEditBtn" style="position: absolute; right: 10px" class="editBtn" onclick="UserEdit(36)">编辑</span></div>	
+                <div id="sclassRule"></div>
+                </div>
+                <div id="lastUpdateTime"></div>
+            </div>
+            <br style="clear: both" />
+
+        </div>
+        <!--end 中间内容-->
+
+        <div id="spnLoading" style="margin: 0 auto; padding:5px;width: 638px; float: left;">
+            <br /><br /><br /><br /><br />
+            <div style="border: 2px solid #CCCCCC; padding: 15px 10px 15px 10px; width: 200px;
+				background-color: #FFF; margin: 0 auto;" align="center" id="subSpnLoading">
+                资料库数据加载中，请稍候......
+            </div>
+        </div>
+
+        
+        
+        <script language="javascript">
+            showMenuUl(1);
+            function UserEdit(id) {
+                window.location.href = '/aspx/edit/league.aspx?SclassID=' + id + '&oldUrl=' + location.pathname;
+            }
+        </script>
+    </div>
+    <script language="javascript" src="/Script/Bottom.js?ver=1" type="text/javascript"></script>
+</body>
+</html>

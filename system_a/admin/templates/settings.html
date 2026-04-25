@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}系统配置 - 足球数据系统 A{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>⚙️ 系统配置</h2>
+    <button class="btn btn-success" onclick="saveSettings()">💾 保存配置</button>
+</div>
+
+<!-- 爬虫配置 -->
+<div class="card">
+    <h3>🕷️ 爬虫配置</h3>
+    <form id="crawlSettingsForm">
+        <div class="stats-grid">
+            <div class="form-group">
+                <label>并发数</label>
+                <input type="number" name="crawl_concurrency" value="{{ config.crawl_concurrency|default(3) }}" min="1" max="10">
+            </div>
+            <div class="form-group">
+                <label>请求延迟下限（秒）</label>
+                <input type="number" name="request_delay_min" value="{{ config.request_delay_min|default(1.0) }}" min="0.1" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>请求延迟上限（秒）</label>
+                <input type="number" name="request_delay_max" value="{{ config.request_delay_max|default(3.0) }}" min="0.1" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>批次大小</label>
+                <input type="number" name="batch_size" value="{{ config.batch_size|default(10) }}" min="1" max="100">
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- 代理配置 -->
+<div class="card">
+    <h3>🌐 代理配置</h3>
+    <form id="proxySettingsForm">
+        <div style="margin-bottom: 15px;">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" name="proxy_enabled" {% if config.proxy_enabled %}checked{% endif %}>
+                启用代理
+            </label>
+        </div>
+        <div class="stats-grid">
+            <div class="form-group">
+                <label>代理类型</label>
+                <select name="proxy_type">
+                    <option value="socks5" {% if config.proxy_type == 'socks5' %}selected{% endif %}>SOCKS5</option>
+                    <option value="http" {% if config.proxy_type == 'http' %}selected{% endif %}>HTTP</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>主机</label>
+                <input type="text" name="proxy_host" value="{{ config.proxy_host|default('') }}" placeholder="如：sg.nexip.cc">
+            </div>
+            <div class="form-group">
+                <label>端口</label>
+                <input type="number" name="proxy_port" value="{{ config.proxy_port|default(3010) }}">
+            </div>
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" name="proxy_username" value="{{ config.proxy_username|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" name="proxy_password" value="{{ config.proxy_password|default('') }}">
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <button type="button" class="btn" onclick="testProxy()">测试代理</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- 目标网站配置 -->
+<div class="card">
+    <h3>🎯 目标网站配置</h3>
+    <form id="targetSettingsForm">
+        <div class="form-group">
+            <label>Titan 基础 URL</label>
+            <input type="text" name="titan_base_url" value="{{ config.titan_base_url|default('https://vip.titan007.com') }}">
+        </div>
+        <div class="form-group">
+            <label>赛程 URL</label>
+            <input type="text" name="titan_schedule_url" value="{{ config.titan_schedule_url|default('https://zq.titan007.com') }}">
+        </div>
+    </form>
+</div>
+
+<!-- 日志配置 -->
+<div class="card">
+    <h3>📝 日志配置</h3>
+    <form id="logSettingsForm">
+        <div class="form-group">
+            <label>日志级别</label>
+            <select name="log_level">
+                <option value="DEBUG" {% if config.log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                <option value="INFO" {% if config.log_level == 'INFO' or not config.log_level %}selected{% endif %}>INFO</option>
+                <option value="WARNING" {% if config.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                <option value="ERROR" {% if config.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+            </select>
+        </div>
+    </form>
+</div>
+
+<script>
+async function saveSettings() {
+    const forms = ['crawlSettingsForm', 'proxySettingsForm', 'targetSettingsForm', 'logSettingsForm'];
+    const data = {};
+    forms.forEach(formId => {
+        const form = document.getElementById(formId);
+        const formData = new FormData(form);
+        formData.forEach((value, key) => {
+            if (form.querySelector(`[name="${key}"]`)?.type === 'checkbox') {
+                data[key] = form.querySelector(`[name="${key}"]`).checked;
+            } else if (value !== '') {
+                // 尝试转换为数字
+                if (!isNaN(value) && value !== '') {
+                    data[key] = parseFloat(value);
+                } else {
+                    data[key] = value;
+                }
+            }
+        });
+    });
+
+    // TODO: 保存到后端
+    console.log('保存配置:', data);
+    alert('配置已保存（功能开发中）');
+}
+
+async function testProxy() {
+    alert('代理测试功能开发中');
+}
+</script>
+{% endblock %}
