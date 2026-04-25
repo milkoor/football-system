@@ -18,9 +18,7 @@ services:
     restart: unless-stopped
 
   system_a:
-    build:
-      context: ./system_a
-      dockerfile: Dockerfile
+    image: football_system-system_a:latest
     container_name: football_system_a
     environment:
       - DATABASE_URL=postgresql://football:football_secure_pass@postgres:5432/football_data

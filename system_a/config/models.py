@@ -125,6 +125,7 @@ class CrawlJob(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String(100), unique=True, nullable=False)
+    job_type = Column(String(50), default="crawl_odds")  # sync_schedule, crawl_odds, calculate_x
     league_id = Column(Integer)
     season_label = Column(String(50))
     match_ids = Column(Text)  # JSON 格式存储比赛 ID 列表

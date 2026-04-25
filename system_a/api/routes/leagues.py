@@ -161,6 +161,7 @@ async def sync_leagues_from_site(
     job_uuid = str(uuid.uuid4())[:8]
     job = CrawlJob(
         job_id=job_uuid,
+        job_type="sync_leagues",
         status="pending",
         total_matches=0,
         completed_matches=0,
@@ -262,6 +263,7 @@ async def sync_seasons_for_league(
     job_uuid = str(uuid.uuid4())[:8]
     job = CrawlJob(
         job_id=job_uuid,
+        job_type="sync_schedule",
         league_id=league_id,
         status="pending",
         total_matches=0,

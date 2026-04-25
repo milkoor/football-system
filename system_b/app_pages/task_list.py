@@ -28,7 +28,7 @@ def render():
 
     # ============ 任务筛选 ============
     st.subheader("任务筛选")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         status_filter = st.selectbox(
@@ -47,6 +47,20 @@ def render():
         status = status_map.get(status_filter) if status_filter != "全部" else None
 
     with col2:
+        type_filter = st.selectbox(
+            "类型筛选",
+            ["全部", "同步联赛列表", "同步赛程", "爬取赔率", "计算X值"],
+            index=0
+        )
+        type_map = {
+            "同步联赛列表": "sync_leagues",
+            "同步赛程": "sync_schedule",
+            "爬取赔率": "crawl_odds",
+            "计算X值": "calculate_x"
+        }
+        job_type = type_map.get(type_filter) if type_filter != "全部" else None
+
+    with col3:
         limit = st.slider("显示数量", min_value=10, max_value=100, value=20)
 
     # ============ 任务列表 ============
@@ -55,16 +69,42 @@ def render():
     try:
         jobs = connector.get_crawl_jobs(status=status, limit=limit)
 
+        # 前端进行任务类型筛选
+        if job_type:
+            jobs = [job for job in jobs if job.get("job_type") == job_type]
+
         if not jobs:
             st.info("暂无爬虫任务")
         else:
             # 创建表格显示任务列表
             job_data = []
+            # 获取联赛ID到联赛名称的映射
+            league_map = {}
+            try:
+                leagues = connector.get_leagues(enabled=True)
+                league_map = {league['id']: f"{league.get('country', '')} - {league.get('league_name_tw', league.get('league_name_zh', ''))}" for league in leagues}
+            except Exception as e:
+                logger.error(f"获取联赛信息失败: {e}")
+
             for job in jobs:
+                league_id = job.get("league_id")
+                league_name = league_map.get(league_id, f"联赛 {league_id}") if league_id else ""
+                job_type = job.get("job_type", "unknown")
+
+                # 任务类型映射
+                type_map = {
+                    "sync_leagues": "同步联赛列表",
+                    "sync_schedule": "同步赛程",
+                    "crawl_odds": "爬取赔率",
+                    "calculate_x": "计算X值"
+                }
+                display_type = type_map.get(job_type, job_type)
+
                 job_data.append({
                     "任务ID": job.get("job_id"),
-                    "类型": "联赛同步" if job.get("league_id") else "单场同步" if job.get("match_ids") else "未知",
-                    "联赛ID": job.get("league_id"),
+                    "类型": display_type,
+                    "联赛ID": league_id,
+                    "联赛名称": league_name,
                     "赛季": job.get("season_label"),
                     "状态": job.get("status"),
                     "开始时间": job.get("started_at"),

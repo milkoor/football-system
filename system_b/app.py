@@ -1,5 +1,13 @@
 """系统 B：Streamlit 应用入口"""
 import streamlit as st
+# 必须在任何其他Streamlit命令之前调用
+st.set_page_config(
+    page_title="足球数据分析系统",
+    page_icon="⚽",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import sys
 import os
 
@@ -8,17 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
 from pathlib import Path
-
-from etl.config_store import get_store
-from etl.pipeline import ETLPipeline
-
-# 配置页面设置
-st.set_page_config(
-    page_title="足球数据分析系统",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # 配置日志
 logging.basicConfig(
@@ -29,135 +26,42 @@ logger = logging.getLogger(__name__)
 
 # 全局状态管理
 if 'initialized' not in st.session_state:
-    st.session_state.initialized = False
-
-
-def init_app():
-    """初始化应用程序"""
     st.session_state.initialized = True
     logger.info("应用程序初始化完成")
 
+# 定义所有页面（使用包装文件）
+page_home = st.Page("views/home.py", title="首页", icon="🏠")
 
-def main():
-    """主应用程序入口"""
-    if not st.session_state.initialized:
-        init_app()
+# 数据准备分组
+page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄")
+page_data_import = st.Page("views/data_importer.py", title="数据导入", icon="📥")
+page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆")
+page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥")
+page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄")
+page_file_download = st.Page("views/file_download.py", title="檔案下載", icon="📥")
 
-    # 侧边栏导航 - 保留原有结构
-    st.sidebar.title("🏆 足球数据分析系统")
-    st.sidebar.markdown("---")
+# 数据分析分组
+page_params = st.Page("views/settings.py", title="参数设定", icon="⚙️")
+page_etl = st.Page("views/etl_exec.py", title="ETL执行", icon="▶️")
 
-    # 数据准备分组
-    st.sidebar.markdown("### 📊 数据准备")
-    data_prep_pages = [
-        ("1️⃣ 系统同步", "system_sync"),
-        ("8️⃣ 数据导入", "8_data_importer"),
-        ("📊 数据验证", "data_validation"),
-        ("👥 关注管理", "follow_list"),
-        ("🎯 数据筛选", "data_filtering")
-    ]
+# 结果输出分组
+page_report = st.Page("views/dashboard.py", title="报表看板", icon="📊")
+page_history = st.Page("views/history.py", title="历史纪录", icon="📜")
 
-    # 数据分析分组
-    st.sidebar.markdown("### 🔧 数据分析")
-    data_analysis_pages = [
-        ("2️⃣ ETL 执行", "etl_exec"),
-        ("🏅 队伍分组", "team_grouping")
-    ]
+# 运维分组
+page_tasks = st.Page("views/task_list.py", title="任务列表", icon="📋")
+page_validation = st.Page("views/data_validation.py", title="数据验证", icon="✅")
+page_db_mgmt = st.Page("views/database_management.py", title="数据库管理", icon="🗄️")
 
-    # 结果输出分组
-    st.sidebar.markdown("### 📈 结果输出")
-    result_output_pages = [
-        ("3️⃣ 报表看板", "dashboard"),
-        ("🔍 历史记录", "history"),
-        ("📈 信号追踪", "signal_tracking"),
-        ("🏅 队伍分组", "team_grouping")
-    ]
+# 定义分组导航 - 移除信号追踪页面，因为功能已整合到其他页面
+pg = st.navigation({
+    "🏠 首页": [page_home],
+    "📊 数据准备": [page_system_sync, page_data_import, page_league_mgmt, page_team_groups, page_file_upload],
+    "📥 文件管理": [page_file_download],
+    "🔧 数据分析": [page_params, page_etl],
+    "📈 结果输出": [page_report, page_history],
+    "🖥️ 运维": [page_tasks, page_validation, page_db_mgmt]
+})
 
-    # 运维分组
-    st.sidebar.markdown("### 🖥️ 运维")
-    operations_pages = [
-        ("📋 任务列表", "task_list"),
-        ("⚙️ 系统设置", "settings"),
-        ("📝 数据库管理", "database_management")
-    ]
-
-    # 档案管理分组
-    st.sidebar.markdown("### 📥 档案管理")
-    file_pages = [
-        ("📥 档案上传", "4_檔案上傳")
-    ]
-
-    # 合并所有页面
-    all_pages = data_prep_pages + data_analysis_pages + result_output_pages + operations_pages + file_pages
-
-    selection = st.sidebar.radio("导航菜单", [p[0] for p in all_pages])
-
-    # 加载对应的页面
-    selected_page = [p[1] for p in all_pages if p[0] == selection][0]
-
-    if selected_page == "home":
-        show_home_page()
-    else:
-        show_page(selected_page)
-
-
-def show_home_page():
-    """显示首页"""
-    st.title("⚽ 足球数据分析系统")
-    st.caption("智能量化分析平台")
-
-    st.markdown("---")
-
-    st.subheader("系统介绍")
-    st.markdown("""
-    本系统提供完整的足球数据处理和分析功能，包括：
-
-    - **数据同步**：从多个数据源同步比赛和赔率数据
-    - **智能计算**：自动计算X值和结算结果
-    - **量化分析**：实现五大区间、轮次块、强度等分析
-    - **信号生成**：基于历史数据生成投资信号
-    - **数据可视化**：提供丰富的图表和报表
-    """)
-
-    st.markdown("---")
-
-    st.subheader("系统状态")
-    store = get_store()
-
-    try:
-        leagues = store.list_leagues(active_only=True)
-        seasons = []
-        for lg in leagues:
-            seasons.extend(store.list_season_instances(lg.id))
-
-        st.metric("活跃联赛", len(leagues))
-        st.metric("活跃赛季", len(seasons))
-
-        match_count = 0
-        for season in seasons:
-            match_count += len(store.get_match_records(season.id))
-        st.metric("比赛记录", match_count)
-
-    except Exception as e:
-        st.error(f"获取系统状态失败: {e}")
-
-
-def show_page(page_name: str):
-    """显示指定页面"""
-    try:
-        page_module = __import__(f"app_pages.{page_name}", fromlist=["render"])
-        page_module.render()
-    except ImportError:
-        try:
-            # 尝试从original_pages中加载
-            page_module = __import__(f"original_pages.{page_name}", fromlist=["render"])
-            page_module.render()
-        except ImportError as e:
-            st.error(f"页面 {page_name} 未找到: {e}")
-    except Exception as e:
-        logger.error(f"页面加载失败: {e}", exc_info=True)
-        st.error(f"页面加载失败: {e}")
-
-
-if __name__ == "__main__":
-    main()
+# 运行导航
+pg.run()

@@ -23,6 +23,28 @@ from modules.follow_list import get_follow_manager
 logger = logging.getLogger(__name__)
 
 
+@st.cache_data(ttl=300)  # 缓存5分钟
+def fetch_leagues(_connector):
+    """获取联赛列表，带缓存"""
+    try:
+        leagues = _connector.get_leagues(enabled=True)
+        return leagues
+    except Exception as e:
+        st.error(f"获取联赛失败: {e}")
+        return []
+
+
+@st.cache_data(ttl=300)  # 缓存5分钟
+def fetch_seasons(_connector, league_id):
+    """获取指定联赛的赛季列表，带缓存"""
+    try:
+        seasons = _connector.get_seasons(league_id)
+        return seasons
+    except Exception as e:
+        st.error(f"获取赛季失败: {e}")
+        return []
+
+
 def render():
     st.title("8️⃣ 数据导入")
     st.caption("关注驱动的完整流程：添加关注 → 同步数据 → 运行ETL")
@@ -42,9 +64,15 @@ def render():
 
     with col1:
         st.caption("添加到关注名单")
+
+        # 刷新按钮
+        if st.button("🔄 刷新联赛/赛季数据", key="refresh_leagues", type="secondary"):
+            st.cache_data.clear()  # 清除所有缓存
+            st.rerun()
+
         try:
-            # 获取已同步的联赛列表
-            all_leagues = connector.get_leagues(enabled=True)
+            # 获取已同步的联赛列表（带缓存）
+            all_leagues = fetch_leagues(connector)
             if all_leagues:
                 league_options = {
                     f"{l.get('country', '')} - {l.get('league_name_tw', l.get('league_name_zh', ''))}": l

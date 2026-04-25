@@ -1,10 +1,13 @@
 """X值结果路由"""
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from config.database import get_db
 from config.models import XValueResult, Match
@@ -185,6 +188,7 @@ async def calculate_x_values(
     from config.models import CrawlJob
     job = CrawlJob(
         job_id=job_uuid,
+        job_type="calculate_x",
         league_id=league_id,
         season_label=season_label,
         match_ids=json.dumps(match_ids),
@@ -235,14 +239,75 @@ async def calculate_x_values(
 
             for match_id in match_ids:
                 try:
+                    # 直接从数据库获取赔率数据
+                    from config.models import OddsMovement
+                    movements_query = db.query(OddsMovement).filter(
+                        OddsMovement.match_id == match_id,
+                        OddsMovement.odds_type == "AH"
+                    )
+                    movements = []
+                    for m in movements_query.order_by(OddsMovement.movement_id.desc()).limit(1000).all():
+                        movements.append({
+                            "id": m.movement_id,
+                            "match_id": m.match_id,
+                            "odds_type": m.odds_type,
+                            "is_half_time": m.is_half_time,
+                            "elapsed_time": m.elapsed_time,
+                            "score_at_time": m.score_at_time,
+                            "update_time": str(m.update_time) if m.update_time else None,
+                            "status": m.status,
+                            "home_rate": m.home_rate,
+                            "handicap_raw": m.handicap_raw,
+                            "handicap_std": m.handicap_std,
+                            "away_rate": m.away_rate,
+                        })
+
+                    if not movements:
+                        failed += 1
+                        continue
+
                     # 计算X值
-                    result = calculator.calculate(match_id)
+                    result = calculator._calculate_x_value(match_id, movements)
+
+                    # 保存结果
                     if result.get('status') == 'success':
+                        existing = db.query(XValueResult).filter(
+                            XValueResult.match_id == match_id
+                        ).first()
+                        if existing:
+                            # 更新
+                            existing.home_team = result.get('home_team')
+                            existing.away_team = result.get('away_team')
+                            existing.score = result.get('score')
+                            existing.target_team = result.get('target_team')
+                            existing.has_star_mark = result.get('has_star_mark')
+                            existing.x_value = result.get('x_value')
+                            existing.status = result.get('status')
+                            existing.calculation_note = result.get('calculation_note')
+                            existing.movement_url = result.get('movement_url')
+                        else:
+                            # 创建
+                            x_result = XValueResult(
+                                match_id=result.get('match_id'),
+                                home_team=result.get('home_team'),
+                                away_team=result.get('away_team'),
+                                score=result.get('score'),
+                                target_team=result.get('target_team'),
+                                has_star_mark=result.get('has_star_mark'),
+                                x_value=result.get('x_value'),
+                                status=result.get('status'),
+                                calculation_note=result.get('calculation_note'),
+                                movement_url=result.get('movement_url'),
+                            )
+                            db.add(x_result)
                         completed += 1
+                        db.commit()
                     else:
                         failed += 1
                 except Exception as e:
                     logger.error(f"计算比赛 {match_id} 的X值失败: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     failed += 1
 
             # 更新任务状态

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM football_system-system_a:latest
 
 WORKDIR /app
 

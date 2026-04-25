@@ -29,6 +29,7 @@ class CrawlJobResponse(BaseModel):
     """爬虫任务响应"""
     id: int
     job_id: str
+    job_type: Optional[str] = "crawl_odds"
     league_id: Optional[int] = None
     season_label: Optional[str] = None
     match_ids: Optional[str] = None
@@ -218,6 +219,7 @@ async def start_crawl(
     # 创建任务记录
     job = CrawlJob(
         job_id=job_uuid,
+        job_type="crawl_odds",
         league_id=league_id,
         season_label=season_label,
         match_ids=match_ids_json,

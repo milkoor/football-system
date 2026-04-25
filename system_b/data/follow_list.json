@@ -1,22 +1,8 @@
 [
   {
-    "league_id": 2017,
-    "league_name": "欧洲 - 歐洲盃",
-    "season_label": "2024-2025",
-    "country": "欧洲",
-    "added_at": null
-  },
-  {
-    "league_id": 2018,
-    "league_name": "欧洲 - 歐冠盃",
-    "season_label": "2024-2025",
-    "country": "欧洲",
-    "added_at": null
-  },
-  {
-    "league_id": 2018,
-    "league_name": "欧洲 - 歐冠盃",
-    "season_label": "2023-2024",
+    "league_id": 2064,
+    "league_name": "欧洲 - 英超",
+    "season_label": "2025-2026",
     "country": "欧洲",
     "added_at": null
   }
