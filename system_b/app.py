@@ -38,7 +38,6 @@ page_data_import = st.Page("views/data_importer.py", title="数据导入", icon=
 page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆")
 page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥")
 page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄")
-page_file_download = st.Page("views/file_download.py", title="檔案下載", icon="📥")
 
 # 数据分析分组
 page_params = st.Page("views/settings.py", title="参数设定", icon="⚙️")
@@ -53,11 +52,10 @@ page_tasks = st.Page("views/task_list.py", title="任务列表", icon="📋")
 page_validation = st.Page("views/data_validation.py", title="数据验证", icon="✅")
 page_db_mgmt = st.Page("views/database_management.py", title="数据库管理", icon="🗄️")
 
-# 定义分组导航 - 移除信号追踪页面，因为功能已整合到其他页面
+# 定义分组导航 - 移除信号追踪页面和文件下载页面（功能已整合到数据导入）
 pg = st.navigation({
     "🏠 首页": [page_home],
     "📊 数据准备": [page_system_sync, page_data_import, page_league_mgmt, page_team_groups, page_file_upload],
-    "📥 文件管理": [page_file_download],
     "🔧 数据分析": [page_params, page_etl],
     "📈 结果输出": [page_report, page_history],
     "🖥️ 运维": [page_tasks, page_validation, page_db_mgmt]

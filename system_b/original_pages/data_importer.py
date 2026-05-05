@@ -18,6 +18,7 @@ from etl.config_store import get_store
 from modules.data_connector import get_connector
 from modules.x_calculator import XValueCalculator
 from modules.follow_list import get_follow_manager
+from utils.system_a_mapper import sync_league_to_system_b, sync_season_to_system_b
 
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,219 @@ def render():
 
     else:
         st.warning("请先添加关注的联赛赛季")
+
+    # ============ 下载赔率 ============
+    st.divider()
+    st.subheader("下载赔率")
+
+    following = follow_manager.get_all()
+    if following:
+        # 显示统计信息
+        try:
+            total_matches = 0
+            pending_matches = 0
+
+            for item in following:
+                matches_result = connector.get_matches(
+                    league_id=item['league_id'],
+                    season=item['season_label'],
+                    page=1,
+                    page_size=10000
+                )
+                total = matches_result.get('total', 0)
+                total_matches += total
+
+                # 获取待爬取的比赛数量
+                pending_result = connector.get_matches(
+                    league_id=item['league_id'],
+                    season=item['season_label'],
+                    crawl_status='pending',
+                    page=1,
+                    page_size=10000
+                )
+                pending = pending_result.get('total', 0)
+                pending_matches += pending
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("关注赛季数量", len(following))
+            with col2:
+                st.metric("总比赛数", total_matches)
+            with col3:
+                st.metric("待爬取赔率", pending_matches)
+
+        except Exception as e:
+            st.error(f"統計數據獲取失敗: {e}")
+
+        # 一键下载所有关注联赛的赔率
+        if st.button("🚀 一键下载所有关注赔率", type="primary", key="download_all_odds"):
+            with st.spinner("正在下载关注联赛的赔率..."):
+                try:
+                    all_pending = []
+
+                    for item in following:
+                        matches_result = connector.get_matches(
+                            league_id=item['league_id'],
+                            season=item['season_label'],
+                            crawl_status='pending',
+                            page=1,
+                            page_size=10000
+                        )
+                        pending = matches_result.get('matches', [])
+                        all_pending.extend(pending)
+
+                    if all_pending:
+                        st.write(f"找到 {len(all_pending)} 场待爬取的比赛")
+
+                        # 分批触发爬取任务（每批500场）
+                        batch_size = 500
+                        for i in range(0, len(all_pending), batch_size):
+                            batch = all_pending[i:i+batch_size]
+                            match_ids = [m['match_id'] for m in batch]
+                            result = connector.trigger_crawl(match_ids=match_ids)
+                            st.write(f"批次 {i//batch_size + 1}: 任务 {result.get('job_id')} 已启动")
+
+                        st.success(f"✅ 已启动 {len(all_pending)} 场比赛的赔率爬取任务")
+                    else:
+                        st.info("🎉 所有关注比赛的赔率数据已同步完成")
+
+                except Exception as e:
+                    st.error(f"下载赔率失败: {e}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+    else:
+        st.warning("請先添加聯賽賽季到關注名單")
+
+    # ============ 计算X值 ============
+    st.divider()
+    st.subheader("计算X值")
+
+    if following:
+        if st.button("📊 一键计算所有X值并导入", type="primary", key="calculate_all_xvalues"):
+            with st.spinner("正在计算所有比赛的X值并导入..."):
+                try:
+                    # 获取所有待计算的比赛
+                    all_completed = []
+
+                    for item in following:
+                        matches_result = connector.get_matches(
+                            league_id=item['league_id'],
+                            season=item['season_label'],
+                            crawl_status='completed',
+                            page=1,
+                            page_size=10000
+                        )
+                        completed = matches_result.get('matches', [])
+                        all_completed.extend(completed)
+
+                    if all_completed:
+                        st.write(f"找到 {len(all_completed)} 场已完成赔率爬取的比赛")
+
+                        # 分批计算X值
+                        batch_size = 100
+                        success_count = 0
+                        imported_count = 0
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+
+                        for i in range(0, len(all_completed), batch_size):
+                            batch = all_completed[i:i+batch_size]
+                            status_text.text(f"处理批次 {i//batch_size + 1}/{(len(all_completed) + batch_size - 1)//batch_size}")
+
+                            # 计算X值
+                            match_ids = [m['match_id'] for m in batch]
+                            results = x_calculator.batch_calculate(match_ids)
+
+                            # 保存X值结果到系统A
+                            for result in results:
+                                if result.get('status') == 'success':
+                                    try:
+                                        connector.save_x_value(result)
+                                        success_count += 1
+                                    except Exception as e:
+                                        logger.warning(f"保存X值失败: {e}")
+
+                            # 导入到系统B的match_records
+                            for idx, result in enumerate(results):
+                                if result.get('status') == 'success':
+                                    try:
+                                        match_data = batch[idx]
+
+                                        # 同步联赛到系统B
+                                        league_id_b = sync_league_to_system_b(store, connector, {
+                                            'id': match_data['league_id'],
+                                            'league_name_tw': match_data.get('league_name', ''),
+                                            'country': '',
+                                            'league_id': match_data['league_id']
+                                        })
+
+                                        # 同步赛季到系统B
+                                        season_id_b = sync_season_to_system_b(store, league_id_b, match_data.get('season', '2024-2025'))
+
+                                        # 创建MatchRecord
+                                        from etl.models import MatchRecord
+                                        from etl.settlement import SettlementCalculator
+
+                                        # 解析轮次
+                                        round_num = 1
+                                        round_name = match_data.get('round_name', '')
+                                        if round_name.startswith('R_'):
+                                            try:
+                                                round_num = int(round_name.replace('R_', ''))
+                                            except:
+                                                pass
+
+                                        # 判断比赛是否已完成
+                                        score_ft = match_data.get('score_ft', '')
+                                        is_completed = False
+                                        if score_ft and score_ft.strip():
+                                            # 如果比分存在，认为比赛已完成
+                                            is_completed = True
+
+                                        record = MatchRecord(
+                                            round_num=round_num,
+                                            home_team=match_data.get('home_team', ''),
+                                            away_team=match_data.get('away_team', ''),
+                                            x_value=result.get('x_value', 0.0),
+                                            settlement='',
+                                            score=score_ft,
+                                            link=result.get('movement_url', ''),
+                                            play_type='HDP',
+                                            target_team=result.get('target_team', ''),
+                                            is_completed=is_completed,
+                                            match_id=str(match_data.get('match_id', ''))
+                                        )
+
+                                        # 计算结算
+                                        SettlementCalculator().calculate([record])
+
+                                        # 保存到match_records
+                                        store.upsert_match_records(
+                                            season_id_b,
+                                            'HDP',
+                                            'Early',
+                                            [record]
+                                        )
+                                        imported_count += 1
+
+                                    except Exception as e:
+                                        logger.error(f"导入match_records失败: {e}")
+                                        import traceback
+                                        st.error(traceback.format_exc())
+
+                            progress_bar.progress(min((i+batch_size)/len(all_completed), 1.0))
+
+                        st.success(f"✅ 成功计算 {success_count} 场比赛的X值，导入 {imported_count} 条记录到系统B")
+                    else:
+                        st.info("没有找到已完成赔率爬取的比赛，请先完成下载赔率步骤")
+
+                except Exception as e:
+                    st.error(f"计算X值失败: {e}")
+                    import traceback
+                    st.error(traceback.format_exc())
+    else:
+        st.warning("請先添加聯賽賽季到關注名單")
 
     # ============ 运行ETL ============
     st.divider()
