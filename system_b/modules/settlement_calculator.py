@@ -18,14 +18,20 @@
    - 总进球数 < 盘口 → 小赢
    - 总进球数 = 盘口 → 走
    - 总进球数 = 盘口 ± 0.25 → 半赢/半输
+
+系统B结算模块：
+- 移除对系统A模块的直接导入
+- 通过httpx调用系统A REST API
+- 使用settings.system_a_api_url作为base URL
+- 同时提供同步和异步接口
 """
 
 import logging
 from typing import Optional, Tuple, Dict, Any
 from datetime import datetime
+import httpx
 
-from config.database import SessionLocal
-from config.models import Match, OddsMovement
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +53,21 @@ class AutoSettlementCalculator:
         "兩球半/三球": 2.75, "三球": 3.0,
     }
 
+    def __init__(self):
+        """初始化"""
+        self.settings = get_settings()
+        self.base_url = self.settings.system_a_api_url
+
     def normalize_handicap(self, handicap_raw: str) -> Optional[float]:
         """标准化盘口"""
         if not handicap_raw:
             return None
 
         t = handicap_raw.strip().replace(" ", "")
+
+        # 处理*标记（保留*信息供后续判断哪方让球使用，但在标准化时去除）
+        has_star = "*" in t
+        t = t.replace("*", "")
 
         # 处理受让
         is_receive = False
@@ -126,7 +141,7 @@ class AutoSettlementCalculator:
 
         # 判断哪方让球
         # 有 * 或 受 标记 = 客队让球（客队是优势方）
-        has_star = "*" in handicap_raw or "受" in handicap_raw
+        has_star = "*" in handicap_raw or "受" in handicap_raw or "受让" in handicap_raw
 
         if has_star:
             # 客队让球，计算客队净胜球
@@ -266,140 +281,250 @@ class AutoSettlementCalculator:
             "error": error,
         }
 
+    # ========== 同步接口 ==========
+
     def auto_settle_match(self, match_id: int) -> Dict[str, Any]:
         """自动结算单场比赛
 
-        从数据库获取比赛信息、赔率数据，计算结算结果并更新数据库
+        通过API调用系统A的自动结算功能
         """
-        db = SessionLocal()
-
         try:
-            # 获取比赛信息
-            match = db.query(Match).filter(Match.match_id == match_id).first()
-            if not match:
-                return self._empty_result("比赛不存在")
+            url = f"{self.base_url}/api/matches/{match_id}/auto-settle"
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url)
 
-            # 检查是否有比分
-            if not match.score_ft:
-                return self._empty_result("暂无比分")
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"自动结算失败: match_id={match_id}, status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
 
-            # 获取初始盘口（最早的那条赔率记录）
-            earliest_odds = db.query(OddsMovement).filter(
-                OddsMovement.match_id == match_id,
-                OddsMovement.odds_type == "AH",
-            ).order_by(OddsMovement.update_time.asc()).first()
-
-            if not earliest_odds:
-                return self._empty_result("暂无盘口数据")
-
-            # 计算HDP结算
-            hdp_result = self.calculate_hdp_settlement(
-                score=match.score_ft,
-                handicap_raw=earliest_odds.handicap_raw or "",
-                home_rate=earliest_odds.home_rate or 0.0,
-                away_rate=earliest_odds.away_rate or 0.0,
-            )
-
-            # 设置目标队伍
-            if hdp_result.get("home_away_direction") == "home":
-                hdp_result["target_team"] = match.home_team
-            elif hdp_result.get("home_away_direction") == "away":
-                hdp_result["target_team"] = match.away_team
-
-            # 更新数据库
-            match.settlement = hdp_result.get("settlement", "")
-            match.settlement_value = hdp_result.get("settlement_value", 0.0)
-            match.settlement_direction = hdp_result.get("settlement_direction", "")
-            match.home_away_direction = hdp_result.get("home_away_direction", "")
-            match.target_team = hdp_result.get("target_team", "")
-
-            db.commit()
-
-            logger.info(f"比赛 {match_id} 自动结算完成: {hdp_result.get('settlement')}")
-
-            return {
-                "match_id": match_id,
-                "home_team": match.home_team,
-                "away_team": match.away_team,
-                "score": match.score_ft,
-                "handicap": earliest_odds.handicap_raw,
-                **hdp_result,
-            }
-
+        except httpx.HTTPStatusError as e:
+            logger.error(f"自动结算HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"自动结算请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
         except Exception as e:
             logger.error(f"自动结算失败: match_id={match_id}, error={e}")
-            return self._empty_result(str(e))
-        finally:
-            db.close()
+            return self._empty_result(f"系统错误: {str(e)}")
 
     def batch_auto_settle(self, league_id: int = None, season: str = None) -> Dict[str, Any]:
         """批量自动结算
 
-        对指定联赛/赛季下所有有比分但未结算的比赛进行自动结算
+        通过API调用系统A的批量自动结算功能
         """
-        db = SessionLocal()
-
         try:
-            query = db.query(Match).filter(
-                Match.score_ft.isnot(None),  # 有比分
-                Match.settlement.is_(None),  # 未结算
-            )
-
+            url = f"{self.base_url}/api/matches/auto-settle"
+            params = {}
             if league_id:
-                query = query.filter(Match.league_id == league_id)
+                params["league_id"] = league_id
             if season:
-                query = query.filter(Match.season == season)
+                params["season"] = season
 
-            matches = query.all()
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, json=params)
 
-            success = 0
-            failed = 0
-            results = []
-
-            for match in matches:
-                result = self.auto_settle_match(match.match_id)
-                if "error" not in result:
-                    success += 1
+                if response.status_code == 200:
+                    return response.json()
                 else:
-                    failed += 1
-                results.append(result)
+                    logger.error(
+                        f"批量自动结算失败: league_id={league_id}, season={season}, "
+                        f"status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
 
-            return {
-                "total": len(matches),
-                "success": success,
-                "failed": failed,
-                "results": results,
-            }
+        except httpx.HTTPStatusError as e:
+            logger.error(f"批量自动结算HTTP错误: error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"批量自动结算请求错误: error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"批量自动结算失败: error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
 
-        finally:
-            db.close()
+    def get_settlement_result(self, match_id: int) -> Dict[str, Any]:
+        """获取结算结果
 
+        通过API调用系统A获取比赛的结算结果
+        """
+        try:
+            url = f"{self.base_url}/api/matches/{match_id}/settlement"
+            with httpx.Client(timeout=60.0) as client:
+                response = client.get(url)
 
-if __name__ == "__main__":
-    # 测试
-    calc = AutoSettlementCalculator()
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"获取结算结果失败: match_id={match_id}, status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
 
-    # 测试让球盘
-    result = calc.calculate_hdp_settlement(
-        score="2-1",
-        handicap_raw="半球",  # 主队让半球
-        home_rate=0.85,
-        away_rate=1.00,
-    )
-    print("主队让半球，比分2-1:", result)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"获取结算结果HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"获取结算结果请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"获取结算结果失败: match_id={match_id}, error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
 
-    result = calc.calculate_hdp_settlement(
-        score="1-2",
-        handicap_raw="*半球",  # 客队让半球（标*）
-        home_rate=1.00,
-        away_rate=0.85,
-    )
-    print("客队让半球（*），比分1-2:", result)
+    def update_score_and_settle(self, match_id: int, score: str) -> Dict[str, Any]:
+        """更新比分并结算
 
-    result = calc.calculate_hdp_settlement(
-        score="2-1",
-        handicap_raw="球半",  # 主队让球半
-        home_rate=0.85,
-        away_rate=1.00,
-    )
-    print("主队让球半，比分2-1:", result)
+        通过API调用系统A更新比分并自动结算
+        """
+        try:
+            url = f"{self.base_url}/api/matches/{match_id}/score"
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, json={"score": score})
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"更新比分失败: match_id={match_id}, score={score}, "
+                        f"status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"更新比分HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"更新比分请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"更新比分失败: match_id={match_id}, error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
+
+    # ========== 异步接口 ==========
+
+    async def async_auto_settle_match(self, match_id: int) -> Dict[str, Any]:
+        """异步自动结算单场比赛"""
+        try:
+            url = f"{self.base_url}/api/matches/{match_id}/auto-settle"
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url)
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"自动结算失败: match_id={match_id}, status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"自动结算HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"自动结算请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"自动结算失败: match_id={match_id}, error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
+
+    async def async_batch_auto_settle(self, league_id: int = None, season: str = None) -> Dict[str, Any]:
+        """异步批量自动结算"""
+        try:
+            url = f"{self.base_url}/api/matches/auto-settle"
+            params = {}
+            if league_id:
+                params["league_id"] = league_id
+            if season:
+                params["season"] = season
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json=params)
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"批量自动结算失败: league_id={league_id}, season={season}, "
+                        f"status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"批量自动结算HTTP错误: error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"批量自动结算请求错误: error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"批量自动结算失败: error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
+
+    async def async_get_settlement_result(self, match_id: int) -> Dict[str, Any]:
+        """异步获取结算结果"""
+        try:
+            url = f"{self.base_url}/api/matches/{match_id}/settlement"
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(url)
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"获取结算结果失败: match_id={match_id}, status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"获取结算结果HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"获取结算结果请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"获取结算结果失败: match_id={match_id}, error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
+
+    async def async_update_score_and_settle(self, match_id: int, score: str) -> Dict[str, Any]:
+        """异步更新比分并结算"""
+        try:
+            url = f"{self.base_url}/api/matches/{match_id}/score"
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json={"score": score})
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(
+                        f"更新比分失败: match_id={match_id}, score={score}, "
+                        f"status={response.status_code}, detail={response.text}"
+                    )
+                    return self._empty_result(
+                        f"API调用失败: {response.status_code} - {response.text}"
+                    )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"更新比分HTTP错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"HTTP错误: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"更新比分请求错误: match_id={match_id}, error={e}")
+            return self._empty_result(f"连接失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"更新比分失败: match_id={match_id}, error={e}")
+            return self._empty_result(f"系统错误: {str(e)}")
