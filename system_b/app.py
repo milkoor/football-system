@@ -17,6 +17,26 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import logging
 from pathlib import Path
 
+# 初始化自动同步调度器（仅在非Docker环境下）
+if os.getenv("IS_DOCKER") is None:
+    try:
+        from modules.auto_sync import SyncScheduler
+        from modules.data_connector import get_connector
+        from modules.follow_list import get_follow_manager
+        from config.settings import get_settings
+
+        logger = logging.getLogger(__name__)
+
+        # 初始化调度器
+        scheduler = SyncScheduler(
+            connector=get_connector(),
+            follow_manager=get_follow_manager(),
+            settings=get_settings()
+        )
+        logger.info("自动同步调度器已启动" if scheduler.get_scheduler() else "自动同步功能已禁用")
+    except Exception as e:
+        logger.error(f"初始化自动同步调度器失败: {str(e)}")
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
