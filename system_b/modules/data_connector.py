@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 import httpx
 
 from config.settings import get_settings
+from modules.x_calculator import XValueCalculator
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -201,13 +202,53 @@ class DataConnector:
         return result
 
     def calculate_x_values(self, league_id: int, season_label: str) -> Dict:
-        """批量计算指定联赛赛季的X值"""
-        result = self._request(
-            "POST",
-            "/api/x-values/calculate",
-            params={"league_id": league_id, "season_label": season_label}
+        """批量计算指定联赛赛季的X值（本地计算）"""
+        # 获取该联赛赛季的所有比赛
+        matches_result = self.get_matches(
+            league_id=league_id,
+            season=season_label,
+            page=1,
+            page_size=200  # 足够大的数量，确保获取所有比赛
         )
-        return result
+
+        matches = []
+        # 处理可能的分页结构 - 系统A返回 {total: X, matches: [...]}
+        if isinstance(matches_result, dict):
+            if "matches" in matches_result:
+                matches = matches_result["matches"]
+            elif "data" in matches_result:
+                matches = matches_result["data"]
+            else:
+                matches = []
+        elif isinstance(matches_result, list):
+            matches = matches_result
+
+        completed = 0
+        failed = 0
+
+        calculator = XValueCalculator(data_connector=self)
+
+        for match in matches:
+            match_id = match["match_id"]
+            try:
+                # 本地计算X值
+                x_result = calculator.calculate_from_match(match_id)
+
+                if x_result.get("status") == "success" and x_result.get("x_value") is not None:
+                    # 保存结果到系统A
+                    self.save_x_value(x_result)
+                    completed += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error(f"计算比赛 {match_id} 的X值失败: {e}")
+                failed += 1
+
+        return {
+            "message": f"X值计算任务完成，成功计算 {completed} 场比赛，失败 {failed} 场",
+            "completed": completed,
+            "failed": failed
+        }
 
     def close(self):
         """关闭连接"""
