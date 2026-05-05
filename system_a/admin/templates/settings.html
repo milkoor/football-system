@@ -8,6 +8,12 @@
     <button class="btn btn-success" onclick="saveSettings()">💾 保存配置</button>
 </div>
 
+{% if message %}
+<div class="alert alert-success">
+    {{ message }}
+</div>
+{% endif %}
+
 <!-- 爬虫配置 -->
 <div class="card">
     <h3>🕷️ 爬虫配置</h3>
@@ -109,27 +115,38 @@
 <script>
 async function saveSettings() {
     const forms = ['crawlSettingsForm', 'proxySettingsForm', 'targetSettingsForm', 'logSettingsForm'];
-    const data = {};
+    const formData = new FormData();
+
     forms.forEach(formId => {
         const form = document.getElementById(formId);
-        const formData = new FormData(form);
-        formData.forEach((value, key) => {
-            if (form.querySelector(`[name="${key}"]`)?.type === 'checkbox') {
-                data[key] = form.querySelector(`[name="${key}"]`).checked;
+        const fd = new FormData(form);
+        fd.forEach((value, key) => {
+            const input = form.querySelector(`[name="${key}"]`);
+            if (input?.type === 'checkbox') {
+                formData.append(key, input.checked ? 'true' : 'false');
             } else if (value !== '') {
-                // 尝试转换为数字
-                if (!isNaN(value) && value !== '') {
-                    data[key] = parseFloat(value);
-                } else {
-                    data[key] = value;
-                }
+                formData.append(key, value);
             }
         });
     });
 
-    // TODO: 保存到后端
-    console.log('保存配置:', data);
-    alert('配置已保存（功能开发中）');
+    try {
+        const response = await fetch('/admin/settings', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            const text = await response.text();
+            // 重新加载页面以显示更新后的配置
+            window.location.reload();
+        } else {
+            alert('保存失败');
+        }
+    } catch (error) {
+        console.error('错误:', error);
+        alert('保存配置时出错');
+    }
 }
 
 async function testProxy() {

@@ -30,6 +30,11 @@ python-dotenv
 pydantic
 pydantic-settings
 httpx
+python-multipart
 
 # 日志
 python-json-logger
+
+# 测试
+pytest
+httpx
