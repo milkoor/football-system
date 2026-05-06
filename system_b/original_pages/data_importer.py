@@ -467,7 +467,7 @@ def render():
                     pipeline = ETLPipeline(store)
                     run_id = pipeline.run_etl(data_source='postgresql')
                     st.success(f"✅ ETL 执行完成！Run ID: {run_id}")
-                    st.info("请前往「信号看板」页面查看结果")
+                    st.info("请前往「报表看板」页面查看结果")
 
                 except Exception as e:
                     st.error(f"❌ ETL 执行失败: {str(e)}")

@@ -55,7 +55,7 @@ def render():
     # ============ 快速操作 ============
     st.subheader("快速操作")
 
-    col_clear, col_sync = st.columns(2)
+    col_clear, col_sync_all = st.columns(2)
 
     with col_clear:
         if st.button("🧹 清除所有同步資料", type="secondary"):
@@ -69,19 +69,33 @@ def render():
                     except Exception as e:
                         st.error(f"❌ 清除失敗: {e}")
 
-    with col_sync:
-        if st.button("🔄 同步联赛列表", type="primary"):
-            with st.spinner("同步联赛列表..."):
+    with col_sync_all:
+        if st.button("🔄 一键同步所有联赛数据", type="primary"):
+            with st.spinner("正在同步所有联赛数据..."):
                 try:
-                    # 1. 同步聯賽
-                    st.write("同步联赛列表...")
+                    # 1. 同步联赛列表
+                    st.write("步骤 1/2: 同步联赛列表...")
                     league_result = connector.sync_leagues_from_site()
-
-                    # 2. 等待一會兒讓聯賽同步完成
                     time.sleep(2)
+                    st.success("✅ 联赛列表同步完成")
 
-                    st.success("联赛列表同步完成!")
-                    st.info("请在下方「同步赛季赛程」部分选择要同步的联赛")
+                    # 2. 同步所有联赛的赛季赛程
+                    st.write("步骤 2/2: 同步所有联赛的赛季赛程...")
+                    leagues = connector.get_leagues(enabled=True)
+                    success_count = 0
+                    fail_count = 0
+
+                    for league in leagues:
+                        try:
+                            result = connector.sync_seasons_for_league(league['id'])
+                            success_count += 1
+                            st.write(f"✅ {league.get('league_name_tw', league.get('league_name_zh', ''))}")
+                        except Exception as e:
+                            fail_count += 1
+                            st.warning(f"⚠️ {league.get('league_name_tw', league.get('league_name_zh', ''))}: {str(e)}")
+
+                    st.success(f"🎉 一键同步完成! 成功: {success_count}, 失败: {fail_count}")
+                    st.info("请前往「数据导入」页面继续后续流程")
                     st.rerun()
                 except Exception as e:
                     st.error(f"同步流程失敗: {e}")
@@ -164,7 +178,7 @@ def render():
             同步賽季賽程成功，但數據尚未計算X值！
 
             **接下來需要執行：**
-            1. 前往「檔案下載」頁面
+            1. 前往「数据导入」頁面
             2. 完成「關注管理」步驟
             3. 下載賠率數據
             4. 計算X值並導入到系統B
@@ -175,9 +189,9 @@ def render():
         with col2:
             st.info("🔄 快捷操作")
             st.markdown("""
-            **請手動前往「檔案下載」頁面**：
+            **請手動前往「数据导入」頁面**：
 
-            點擊左側導航菜單中的「📥 檔案下載」選項，
+            點擊左側導航菜單中的「📥 数据导入」選項，
             然後按照以下步驟執行：
             1. 添加關注聯賽
             2. 下載賠率數據
@@ -194,15 +208,15 @@ def render():
                 - 同步賽季賽程
                 - 獲取比賽基本信息
 
-                ### 2. 檔案下載 - 關注管理
+                ### 2. 数据导入 - 關注管理
                 - 將需要分析的聯賽賽季添加到「關注名單」
                 - 支持按國家、聯賽名稱篩選
 
-                ### 3. 檔案下載 - 下載賠率
+                ### 3. 数据导入 - 下載賠率
                 - 下載關注名單中所有比賽的賠率數據
                 - 自動分批觸發爬取任務
 
-                ### 4. 檔案下載 - 計算X值
+                ### 4. 数据导入 - 計算X值
                 - 計算所有已完成賠率爬取的比賽的X值
                 - 自動同步到系統B的數據庫中
                 - 支持批次處理，防止超時
