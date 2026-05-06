@@ -2,6 +2,8 @@
 
 import streamlit as st
 import json
+import os
+import sys
 
 def render():
     st.title("⚙️ 参数设置")
@@ -123,6 +125,73 @@ Zone 9: X > {x8}
             st.success("参数已保存！")
         except Exception as e:
             st.error(f"保存失败: {e}")
+
+    # 自动同步设置
+    st.divider()
+    st.subheader("🔄 自动同步设置")
+
+    # 导入配置
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from config.settings import get_settings
+    settings = get_settings()
+
+    # 显示当前状态
+    status_text = "✅ 已启用" if settings.sync_enabled else "❌ 已禁用"
+    st.write(f"**当前状态**: {status_text}")
+    st.write(f"**同步间隔**: {settings.sync_interval_hours} 小时")
+
+    # 编辑选项
+    new_sync_enabled = st.toggle("启用自动同步", value=settings.sync_enabled)
+    new_sync_interval = st.number_input(
+        "同步间隔（小时）",
+        min_value=1,
+        max_value=168,  # 7天
+        value=settings.sync_interval_hours
+    )
+
+    # 保存同步设置按钮
+    if st.button("💾 保存同步设置"):
+        # 更新 .env 文件
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+        if not os.path.exists(env_path):
+            open(env_path, "w").close()
+
+        # 读取现有配置行（保留注释和空行）
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # 要更新的字段映射
+        updates = {
+            "SYNC_ENABLED": "true" if new_sync_enabled else "false",
+            "SYNC_INTERVAL_HOURS": str(new_sync_interval)
+        }
+
+        # 更新现有行
+        new_lines = []
+        updated_keys = set()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key = stripped.split("=", 1)[0].strip()
+                if key in updates:
+                    new_lines.append(f"{key}={updates[key]}\n")
+                    updated_keys.add(key)
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        # 添加未在现有文件中的新键
+        for key, value in updates.items():
+            if key not in updated_keys:
+                new_lines.append(f"{key}={value}\n")
+
+        # 写回 .env 文件
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        st.success("同步设置已保存！请重启系统 B 使配置生效。")
 
     # 恢复默认
     if st.button("🔄 恢复默认"):
