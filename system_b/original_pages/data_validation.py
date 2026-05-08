@@ -11,7 +11,7 @@ Validates: Requirements 22.1, 22.2, 22.3, 22.4
 import pandas as pd
 import streamlit as st
 
-from etl.config_store import get_store
+from core.config_store import get_store
 
 def render():
     store = get_store()

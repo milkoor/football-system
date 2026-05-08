@@ -11,7 +11,7 @@ Validates: Requirements 7.1, 7.2, 7.3, 10.1
 
 import streamlit as st
 
-from etl.config_store import get_store
+from core.config_store import get_store
 
 def render():
     store = get_store()

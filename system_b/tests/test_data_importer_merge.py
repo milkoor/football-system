@@ -71,7 +71,7 @@ class TestDataImporterMerge:
 
         for node in ast.walk(self.tree):
             if isinstance(node, ast.ImportFrom):
-                # 检查 from etl.settlement import SettlementCalculator
+                # 检查 from core.settlement import SettlementCalculator
                 if node.module == 'etl.settlement':
                     for name in node.names:
                         if name.name == 'SettlementCalculator':

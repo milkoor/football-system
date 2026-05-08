@@ -12,11 +12,11 @@ Validates: Requirements 4.1, 4.2, 4.4, 4.5, 4.6, 7.4
 
 import streamlit as st
 
-from etl.config_store import get_store
-from etl.filename_parser import FilenameParser
-from etl.league_resolver import LeagueResolver, PendingLeague, ResolveResult
-from etl.match_importer import MatchImporter
-from etl.pipeline import ETLPipeline
+from core.config_store import get_store
+from core.filename_parser import FilenameParser
+from core.league_resolver import LeagueResolver, PendingLeague, ResolveResult
+from core.match_importer import MatchImporter
+from core.pipeline import ETLPipeline
 
 store = get_store()
 parser = FilenameParser()

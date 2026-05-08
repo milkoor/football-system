@@ -6,7 +6,7 @@
 import logging
 from typing import Dict, Any
 
-from etl.config_store import get_store
+from core.config_store import get_store
 from modules.data_connector import get_connector
 
 

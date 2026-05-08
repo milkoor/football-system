@@ -1419,3 +1419,19 @@ class ConfigStore:
         self.log_action("delete", "etl_run", run_id)
         return True
 
+
+# 全局存储实例
+_store_instance: ConfigStore | None = None
+
+
+def get_store() -> ConfigStore:
+    """
+    获取全局 ConfigStore 实例的工厂函数。
+    确保整个应用程序中只使用一个 ConfigStore 实例，
+    避免重复建立 SQLite 数据库连接。
+    """
+    global _store_instance
+    if _store_instance is None:
+        _store_instance = ConfigStore()
+    return _store_instance
+

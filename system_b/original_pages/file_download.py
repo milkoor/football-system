@@ -11,7 +11,7 @@ import logging
 from typing import List, Dict, Any
 from datetime import datetime
 
-from etl.config_store import get_store
+from core.config_store import get_store
 from modules.data_connector import get_connector
 from modules.x_calculator import XValueCalculator
 from modules.follow_list import get_follow_manager
@@ -267,8 +267,8 @@ def render():
                                         season_id_b = sync_season_to_system_b(store, league_id_b, match_data.get('season', '2024-2025'))
 
                                         # 创建MatchRecord
-                                        from etl.models import MatchRecord
-                                        from etl.settlement import SettlementCalculator
+                                        from core.models import MatchRecord
+                                        from core.settlement import SettlementCalculator
 
                                         # 解析轮次
                                         round_num = 1

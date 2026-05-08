@@ -7,7 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from etl.config_store import get_store
+from core.config_store import get_store
 
 def render():
     st.title("💾 資料庫管理")

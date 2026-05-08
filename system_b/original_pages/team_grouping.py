@@ -9,8 +9,8 @@ import json
 import pandas as pd
 import streamlit as st
 
-from etl.config_store import get_store
-from etl.mismatch_detector import (
+from core.config_store import get_store
+from core.mismatch_detector import (
     FixAction,
     MismatchEntry,
     apply_fixes,

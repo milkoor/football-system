@@ -11,7 +11,7 @@ import streamlit as st
 import time
 import logging
 
-from etl.config_store import get_store
+from core.config_store import get_store
 from modules.data_connector import get_connector
 
 

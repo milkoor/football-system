@@ -10,8 +10,8 @@ Validates: Requirements 9.3, 10.2, 16.1, 16.2, 16.4, 16.5, 16.6
 
 import streamlit as st
 
-from etl.config_store import get_store
-from etl.pipeline import ETLPipeline
+from core.config_store import get_store
+from core.pipeline import ETLPipeline
 
 def render():
     store = get_store()
