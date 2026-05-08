@@ -26,6 +26,13 @@ This is a football data analysis system with two main components:
 └─────────────────────────────────────────┘
 ```
 
+## System B Module Structure
+- **`system_b/core/`**: Main ETL and analysis logic (previously in `etl/` or `core/core/`; use `from core import ...` for all imports)
+- **`system_b/modules/`**: Additional modules like `data_connector`, `follow_list`, `auto_sync`
+- **`system_b/views/`**: Streamlit page wrappers
+- **`system_b/app_pages/` & `original_pages/`**: Actual Streamlit page implementations
+- **`system_b/tests/`**: Pytest tests for System B
+
 ## Commands
 
 ### Build & Run
@@ -52,7 +59,7 @@ docker-compose logs -f
 cd system_a && pytest
 
 # System B tests (pytest)
-cd system_b && pytest
+cd system_b && ./run_tests.sh  # Or: pytest tests/ --ignore=tests/tests
 ```
 
 ## Key Directories
