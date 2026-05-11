@@ -1,201 +1,164 @@
-"""参数设置页面"""
+"""演算法參數設定頁面。
+
+功能：
+- 顯示所有可設定參數及當前值
+- 允許修改參數值，提供說明與預設值參考
+- 「恢復預設值」按鈕
+- 參數驗證（分界點升序、mapping 完整性）
+"""
+
+import json
 
 import streamlit as st
-import json
-import os
-import sys
+
+from core.config_store import get_store
+
+store = get_store()
+
+_PARAM_DESC = {
+    "x_value_boundaries": "X 值 9 區間的 8 個分界點（升序浮點數列表）",
+    "five_zone_mapping": "9 區間→5 大區間的分組方式（二維陣列，每個子陣列為一個大區間包含的 zone_id）",
+    "round_block_size": "每個輪次區段包含的輪數",
+    "guard_ratio_threshold": "訊號數值判定的贏輸比值門檻",
+    "strength_upgrade_multiplier": "護級=2 時 MAX/MIN 達此倍數則升級為 4",
+    "settlement_values": "各結算結果對應的累加數值（JSON 物件）",
+}
+
+
+def _validate_boundaries(boundaries: list) -> str | None:
+    if not isinstance(boundaries, list) or len(boundaries) == 0:
+        return "分界點必須為非空列表"
+    for v in boundaries:
+        if not isinstance(v, (int, float)):
+            return f"分界點必須為數字，發現：{v}"
+    for i in range(1, len(boundaries)):
+        if boundaries[i] <= boundaries[i - 1]:
+            return f"分界點必須升序排列：{boundaries[i - 1]} >= {boundaries[i]}"
+    return None
+
+
+def _validate_five_zone_mapping(mapping: list, num_zones: int = 9) -> str | None:
+    if not isinstance(mapping, list) or len(mapping) == 0:
+        return "分組必須為非空二維陣列"
+    all_ids = []
+    for group in mapping:
+        if not isinstance(group, list):
+            return f"每個分組必須為陣列，發現：{group}"
+        for zid in group:
+            if not isinstance(zid, int):
+                return f"zone_id 必須為整數，發現：{zid}"
+            all_ids.append(zid)
+    expected = list(range(1, num_zones + 1))
+    if sorted(all_ids) != expected:
+        return f"分組必須涵蓋所有區間 {expected}，實際 {sorted(all_ids)}"
+    return None
+
+
+def _validate_param(key: str, value) -> str | None:
+    if key == "x_value_boundaries":
+        return _validate_boundaries(value)
+    if key == "five_zone_mapping":
+        return _validate_five_zone_mapping(value)
+    if key in ("round_block_size",):
+        if not isinstance(value, int) or value < 1:
+            return f"{key} 必須為正整數"
+    if key in ("guard_ratio_threshold", "strength_upgrade_multiplier"):
+        if not isinstance(value, (int, float)) or value <= 0:
+            return f"{key} 必須為正數"
+    if key == "settlement_values":
+        if not isinstance(value, dict):
+            return "settlement_values 必須為 JSON 物件"
+    return None
+
 
 def render():
-    st.title("⚙️ 参数设置")
+    st.title("⚙️ 參數設定")
+    st.caption("調整演算法參數")
 
-    st.info("调整算法参数，影响信号计算结果")
+    col_reset, _ = st.columns([1, 3])
+    with col_reset:
+        if st.button("🔄 恢復所有預設值"):
+            store.reset_params_to_default()
+            st.success("已恢復所有參數為預設值")
+            st.rerun()
 
-    # 加载当前参数
-    try:
-        with open("config/default_params.json", "r", encoding="utf-8") as f:
-            params = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        params = {
-            "x_value_boundaries": [-0.24, -0.22, -0.15, -0.08, -0.03, 0.07, 0.15, 0.23],
-            "five_zone_mapping": [[1], [2, 3, 4], [5, 6], [7, 8], [9]],
-            "round_block_size": 10,
-            "guard_ratio_threshold": 1.4,
-            "strength_upgrade_multiplier": 2.0,
-        }
+    st.markdown("---")
 
-    # X值边界
-    st.subheader("🎯 X值分界点")
+    params = store.get_all_params()
 
-    st.write("将 X 值划分为 9 个区间的边界值：")
+    import json as _json
+    from pathlib import Path as _Path
 
-    col1, col2 = st.columns(2)
+    _defaults_path = _Path(__file__).resolve().parent.parent / "config" / "default_params.json"
+    with open(_defaults_path, encoding="utf-8") as _f:
+        _defaults = _json.load(_f)
 
-    with col1:
-        x1 = st.number_input("Zone 1 边界", value=params.get("x_value_boundaries", [-0.24])[0], step=0.01)
-        x2 = st.number_input("Zone 2 边界", value=params.get("x_value_boundaries", [-0.22])[1], step=0.01)
-        x3 = st.number_input("Zone 3 边界", value=params.get("x_value_boundaries", [-0.15])[2], step=0.01)
-        x4 = st.number_input("Zone 4 边界", value=params.get("x_value_boundaries", [-0.08])[3], step=0.01)
+    for key in _PARAM_DESC:
+        current_value = params.get(key)
+        default_value = _defaults.get(key)
+        desc = _PARAM_DESC[key]
 
-    with col2:
-        x5 = st.number_input("Zone 5 边界", value=params.get("x_value_boundaries", [-0.03])[4], step=0.01)
-        x6 = st.number_input("Zone 6 边界", value=params.get("x_value_boundaries", [0.07])[5], step=0.01)
-        x7 = st.number_input("Zone 7 边界", value=params.get("x_value_boundaries", [0.15])[6], step=0.01)
-        x8 = st.number_input("Zone 8 边界", value=params.get("x_value_boundaries", [0.23])[7], step=0.01)
+        with st.expander(f"📌 {key}", expanded=False):
+            st.caption(desc)
+            st.markdown(f"**預設值：** `{json.dumps(default_value, ensure_ascii=False)}`")
 
-    x_boundaries = [x1, x2, x3, x4, x5, x6, x7, x8]
+            if key in ("round_block_size",):
+                new_val = st.number_input(
+                    f"{key} 值",
+                    value=int(current_value) if current_value is not None else int(default_value),
+                    min_value=1,
+                    step=1,
+                    key=f"input_{key}",
+                )
+                if st.button("儲存", key=f"save_{key}"):
+                    err = _validate_param(key, int(new_val))
+                    if err:
+                        st.error(err)
+                    else:
+                        store.set_param(key, int(new_val))
+                        st.success(f"已儲存 {key} = {int(new_val)}")
 
-    # 可视化区间
-    st.write("**当前区间划分：**")
-    st.code(f"""
-Zone 1: X ≤ {x1}
-Zone 2: {x1} < X ≤ {x2}
-Zone 3: {x2} < X ≤ {x3}
-Zone 4: {x3} < X ≤ {x4}
-Zone 5: {x4} < X ≤ {x5}
-Zone 6: {x5} < X ≤ {x6}
-Zone 7: {x6} < X ≤ {x7}
-Zone 8: {x7} < X ≤ {x8}
-Zone 9: X > {x8}
-""")
+            elif key in ("guard_ratio_threshold", "strength_upgrade_multiplier"):
+                new_val = st.number_input(
+                    f"{key} 值",
+                    value=float(current_value) if current_value is not None else float(default_value),
+                    min_value=0.01,
+                    step=0.1,
+                    format="%.2f",
+                    key=f"input_{key}",
+                )
+                if st.button("儲存", key=f"save_{key}"):
+                    err = _validate_param(key, float(new_val))
+                    if err:
+                        st.error(err)
+                    else:
+                        store.set_param(key, float(new_val))
+                        st.success(f"已儲存 {key} = {float(new_val)}")
 
-    # 轮次块大小
-    st.divider()
-    st.subheader("📊 轮次块大小")
-
-    round_block_size = st.number_input(
-        "每 N 轮为一个块",
-        min_value=1,
-        max_value=20,
-        value=params.get("round_block_size", 10),
-        help="数据聚合时每多少轮分为一个块"
-    )
-
-    # 护级参数
-    st.divider()
-    st.subheader("🛡️ 护级判定参数")
-
-    guard_threshold = st.number_input(
-        "护级比率阈值",
-        min_value=1.0,
-        max_value=3.0,
-        value=params.get("guard_ratio_threshold", 1.4),
-        step=0.1,
-        help="护级 2 升级到 4 的比率门槛"
-    )
-
-    # 强度升级参数
-    st.divider()
-    st.subheader("💪 强度升级参数")
-
-    strength_multiplier = st.number_input(
-        "强度升级倍数",
-        min_value=1.0,
-        max_value=5.0,
-        value=params.get("strength_upgrade_multiplier", 2.0),
-        step=0.1,
-        help="护级 2 升级到 4 的赢输比倍数"
-    )
-
-    # 五大区间映射
-    st.divider()
-    st.subheader("🗂️ 五大区间映射")
-
-    st.write("将 9 个小区间合并为 5 个大区间：")
-
-    five_zone = params.get("five_zone_mapping", [[1], [2, 3, 4], [5, 6], [7, 8], [9]])
-
-    for i, zone in enumerate(five_zone, 1):
-        st.write(f"**大区间 {i}**: Zone {', '.join(map(str, zone))}")
-
-    # 保存按钮
-    st.divider()
-
-    if st.button("💾 保存参数", type="primary"):
-        new_params = {
-            "x_value_boundaries": x_boundaries,
-            "five_zone_mapping": five_zone,
-            "round_block_size": round_block_size,
-            "guard_ratio_threshold": guard_threshold,
-            "strength_upgrade_multiplier": strength_multiplier,
-        }
-
-        try:
-            with open("config/default_params.json", "w", encoding="utf-8") as f:
-                json.dump(new_params, f, ensure_ascii=False, indent=2)
-            st.success("参数已保存！")
-        except Exception as e:
-            st.error(f"保存失败: {e}")
-
-    # 自动同步设置
-    st.divider()
-    st.subheader("🔄 自动同步设置")
-
-    # 导入配置
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from config.settings import get_settings
-    settings = get_settings()
-
-    # 显示当前状态
-    status_text = "✅ 已启用" if settings.sync_enabled else "❌ 已禁用"
-    st.write(f"**当前状态**: {status_text}")
-    st.write(f"**同步间隔**: {settings.sync_interval_hours} 小时")
-
-    # 编辑选项
-    new_sync_enabled = st.toggle("启用自动同步", value=settings.sync_enabled)
-    new_sync_interval = st.number_input(
-        "同步间隔（小时）",
-        min_value=1,
-        max_value=168,  # 7天
-        value=settings.sync_interval_hours
-    )
-
-    # 保存同步设置按钮
-    if st.button("💾 保存同步设置"):
-        # 更新 .env 文件
-        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-        if not os.path.exists(env_path):
-            open(env_path, "w").close()
-
-        # 读取现有配置行（保留注释和空行）
-        with open(env_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        # 要更新的字段映射
-        updates = {
-            "SYNC_ENABLED": "true" if new_sync_enabled else "false",
-            "SYNC_INTERVAL_HOURS": str(new_sync_interval)
-        }
-
-        # 更新现有行
-        new_lines = []
-        updated_keys = set()
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#") and "=" in stripped:
-                key = stripped.split("=", 1)[0].strip()
-                if key in updates:
-                    new_lines.append(f"{key}={updates[key]}\n")
-                    updated_keys.add(key)
-                else:
-                    new_lines.append(line)
             else:
-                new_lines.append(line)
-
-        # 添加未在现有文件中的新键
-        for key, value in updates.items():
-            if key not in updated_keys:
-                new_lines.append(f"{key}={value}\n")
-
-        # 写回 .env 文件
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-
-        st.success("同步设置已保存！请重启系统 B 使配置生效。")
-
-    # 恢复默认
-    if st.button("🔄 恢复默认"):
-        st.warning("恢复默认功能开发中")
+                current_json = json.dumps(
+                    current_value if current_value is not None else default_value,
+                    ensure_ascii=False, indent=2,
+                )
+                new_json = st.text_area(
+                    f"{key} (JSON)",
+                    value=current_json,
+                    height=120 if key in ("settlement_values", "five_zone_mapping") else 80,
+                    key=f"input_{key}",
+                )
+                if st.button("儲存", key=f"save_{key}"):
+                    try:
+                        parsed = json.loads(new_json)
+                    except json.JSONDecodeError as e:
+                        st.error(f"JSON 格式錯誤：{e}")
+                        parsed = None
+                    if parsed is not None:
+                        err = _validate_param(key, parsed)
+                        if err:
+                            st.error(err)
+                        else:
+                            store.set_param(key, parsed)
+                            st.success(f"已儲存 {key}")
 
 
 if __name__ == "__main__":
