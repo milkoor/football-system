@@ -47,6 +47,8 @@ def _validate_five_zone_mapping(mapping: list, num_zones: int = 9) -> str | None
         for zid in group:
             if not isinstance(zid, int):
                 return f"zone_id 必須為整數，發現：{zid}"
+            if zid < 1 or zid > num_zones:
+                return f"zone_id 必須在 1~{num_zones} 範圍內，發現：{zid}"
             all_ids.append(zid)
     expected = list(range(1, num_zones + 1))
     if sorted(all_ids) != expected:

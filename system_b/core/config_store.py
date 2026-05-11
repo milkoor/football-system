@@ -719,6 +719,15 @@ class ConfigStore:
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
 
+    def get_global_group(self, group_id: int) -> GlobalGroup | None:
+        """依 ID 查詢全域分組。"""
+        row = self._conn.execute(
+            "SELECT * FROM global_groups WHERE id = ?", (group_id,)
+        ).fetchone()
+        if row:
+            return self._row_to_global_group(row)
+        return None
+
     def delete_global_group(self, group_id: int) -> None:
         """刪除全域分組，級聯刪除關聯資料。"""
         self._conn.execute(

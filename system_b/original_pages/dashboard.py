@@ -76,12 +76,10 @@ def _get_group_info(group_id: int) -> tuple[str, str]:
     """回傳 (name, display_label)。name 用於跨聯賽聚合 key，display_label 用於顯示。"""
     if group_id in _group_cache:
         return _group_cache[group_id]
-    row = store._conn.execute(
-        "SELECT name, display_name FROM global_groups WHERE id = ?", (group_id,)
-    ).fetchone()
-    if row:
-        name = row["name"]
-        display = row["display_name"] or row["name"]
+    gg = store.get_global_group(group_id)
+    if gg:
+        name = gg.name
+        display = gg.display_name or gg.name
     else:
         name = f"Group#{group_id}"
         display = name
@@ -243,25 +241,26 @@ for tab, group_name in zip(group_tabs, group_names):
 
 st.markdown("---")
 if st.button("📥 匯出 Excel"):
-    rows = []
-    for d in all_decisions:
-        lg = all_leagues.get(d["league_id"])
-        if not lg:
-            continue
-        group_name, group_display = _get_group_info(d.get("global_group_id", 0))
-        phase_suffix = f"（{lg.phase}）" if lg.phase else ""
-        for i in range(5):
-            rows.append({
-                "分組": group_display,
-                "聯賽代碼": lg.code,
-                "聯賽名稱": f"{lg.name_zh}{phase_suffix}",
-                "洲別": lg.continent,
-                "玩法": d["play_type"],
-                "時段": d["timing"],
-                "區間": f"Zone {i + 1}",
-                "Home訊號": d["home_signals"][i],
-                "Away訊號": d["away_signals"][i],
-            })
+    with st.spinner("正在生成報表..."):
+        rows = []
+        for d in all_decisions:
+            lg = all_leagues.get(d["league_id"])
+            if not lg:
+                continue
+            group_name, group_display = _get_group_info(d.get("global_group_id", 0))
+            phase_suffix = f"（{lg.phase}）" if lg.phase else ""
+            for i in range(5):
+                rows.append({
+                    "分組": group_display,
+                    "聯賽代碼": lg.code,
+                    "聯賽名稱": f"{lg.name_zh}{phase_suffix}",
+                    "洲別": lg.continent,
+                    "玩法": d["play_type"],
+                    "時段": d["timing"],
+                    "區間": f"Zone {i + 1}",
+                    "Home訊號": d["home_signals"][i],
+                    "Away訊號": d["away_signals"][i],
+                })
 
     if rows:
         df_export = pd.DataFrame(rows)
