@@ -181,10 +181,16 @@ def render():
 
         step = st.session_state.sync_step
         if step is None:
-            if st.button("🚀 完整同步（赛程→赔率→X值）", type="primary", key="btn_full_sync"):
-                st.session_state.sync_step = 'sync'
-                st.session_state.sync_results = []
-                st.rerun()
+            col_a, col_b = st.columns([1, 1])
+            with col_a:
+                if st.button("🚀 完整同步（赛程→赔率→X值）", type="primary", key="btn_full_sync"):
+                    st.session_state.sync_step = 'sync'
+                    st.session_state.sync_results = []
+                    st.rerun()
+            with col_b:
+                if st.button("📥 仅导入到系统B（跳过爬虫）", type="secondary", key="btn_import_only"):
+                    st.session_state.sync_step = 'xcalc'
+                    st.rerun()
 
         elif step == 'sync':
             st.caption("步骤 1/3: 同步赛程...")
