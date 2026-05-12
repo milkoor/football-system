@@ -31,39 +31,25 @@ def render():
 
     st.subheader("同步狀態")
 
-    # 获取赛季总数
-    season_count = 0
-    try:
-        jobs = connector.get_crawl_jobs(limit=50)
-        for j in jobs:
-            if j.get('job_type') == 'batch_sync_schedule' and j.get('status') == 'completed':
-                season_count = j.get('total_matches', 0)
-                break
-    except:
-        pass
-
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
 
     with col2:
-        st.metric("賽季標籤", season_count, help="一批同步创建的赛季名称记录，不含比赛数据。比赛数据需在数据导入页关注后同步。")
+        try:
+            stats = connector.get_crawl_stats()
+            st.metric("比賽數", stats.get('total_matches', 0))
+        except Exception as e:
+            st.metric("比賽數", "❌")
+            logger.warning(f"獲取比賽數失敗: {e}")
 
     with col3:
         try:
             stats = connector.get_crawl_stats()
-            st.metric("比賽數據(已下載)", stats.get('total_matches', 0))
+            st.metric("待爬取賠率", stats.get('pending', 0))
         except Exception as e:
-            st.metric("比賽數據", "❌")
-            logger.warning(f"獲取總比賽數失敗: {e}")
-
-    with col4:
-        try:
-            stats = connector.get_crawl_stats()
-            st.metric("待爬取", stats.get('pending', 0))
-        except Exception as e:
-            st.metric("待爬取", "❌")
+            st.metric("待爬取賠率", "❌")
             logger.warning(f"獲取待爬取數量失敗: {e}")
 
     st.divider()
