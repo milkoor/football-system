@@ -175,7 +175,7 @@ class DataConnector:
 
     def get_season_stats(self) -> Dict:
         """获取赛季维度统计（总赛季数、已同步赛季数）"""
-        result = self._request("GET", "/api/seasons/stats")
+        result = self._request("GET", "/api/season-stats")
         return result
 
     # ============ 结算相关 ============

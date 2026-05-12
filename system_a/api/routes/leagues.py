@@ -547,16 +547,18 @@ async def clear_all_sync_data(
         raise HTTPException(status_code=500, detail=f"清除失败: {e}")
 
 
-@router.get("/seasons/stats")
+@router.get("/season-stats")
 async def get_season_stats(
     db: Session = Depends(get_db),
 ):
     """获取赛季维度统计"""
     from config.models import Match, Season
+    from sqlalchemy import text
     total_seasons = db.query(Season).count()
-    synced_seasons = db.query(Season).filter(
-        Season.id.in_(db.query(Match.league_id).distinct())
-    ).count()
+    synced_seasons = db.execute(text(
+        "SELECT COUNT(*) FROM seasons s WHERE EXISTS "
+        "(SELECT 1 FROM matches m WHERE m.league_id = s.league_id AND m.season = s.season_label)"
+    )).scalar()
     return {
         "total_seasons": total_seasons,
         "synced_seasons": synced_seasons,
