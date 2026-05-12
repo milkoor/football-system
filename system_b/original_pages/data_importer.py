@@ -339,6 +339,10 @@ def render():
                 except:
                     pass
 
+                # 收集所有记录后批量导入
+                from core.models import MatchRecord
+                from core.settlement import SettlementCalculator
+
                 batch_size = 100
                 success = 0
                 imported = 0
@@ -357,17 +361,11 @@ def render():
                             except:
                                 pass
 
-                    for idx, (md, r) in enumerate(zip(batch, results)):
+                    # 收集这一批的记录
+                    batch_records: dict[tuple, list[MatchRecord]] = {}
+                    for md, r in zip(batch, results):
                         try:
                             x_val = r.get('x_value', 0.0) if r.get('status') == 'success' else 0.0
-                            # 从 System A 获取联赛名称
-                            league_name = ''
-                            try:
-                                league_resp = connector.get_league(md.get('league_id'))
-                                if league_resp:
-                                    league_name = league_resp.get('league_name_tw') or league_resp.get('league_name_zh', '')
-                            except:
-                                pass
                             league_info = {
                                 'id': md.get('league_id'),
                                 'league_name_tw': league_name_map.get(md.get('league_id'), ''),
@@ -376,8 +374,6 @@ def render():
                             }
                             lid_b = sync_league_to_system_b(store, connector, league_info)
                             sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
-                            from core.models import MatchRecord
-                            from core.settlement import SettlementCalculator
                             record = MatchRecord(
                                 round_num=int(md.get('round_name', '1').replace('R_', '')),
                                 home_team=md.get('home_team', ''),
@@ -389,13 +385,20 @@ def render():
                                 target_team=r.get('target_team', ''),
                             )
                             SettlementCalculator().calculate([record])
-                            store.upsert_match_records(sid_b, 'HDP', 'Early', [record])
+                            key = (sid_b, 'HDP', 'Early')
+                            if key not in batch_records:
+                                batch_records[key] = []
+                            batch_records[key].append(record)
                             imported += 1
                         except Exception as e:
                             logger.error(f"导入失败: {e}")
 
-                    if results:
-                        success = sum(1 for r in results if r.get('status') == 'success')
+                    # 批量写入
+                    for (sid, pt, tm), recs in batch_records.items():
+                        try:
+                            store.upsert_match_records(sid, pt, tm, recs)
+                        except Exception as e:
+                            logger.error(f"批量写入失败: {e}")
 
                     prog.progress(min((i + batch_size) / len(all_completed), 1.0))
 
