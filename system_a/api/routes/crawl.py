@@ -1,7 +1,9 @@
 """爬虫任务路由"""
 
 import uuid
+import re
 import logging
+import re
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
@@ -81,7 +83,7 @@ def run_crawl_task(job_id: int, db: Session):
                 # 过滤已完成的比赛
                 for match_id in requested_ids:
                     match = db.query(Match).filter(Match.match_id == match_id).first()
-                    if match and match.score_ft and match.score_ft.strip():
+                    if match and match.score_ft and re.search("\\d+-\\d+", match.score_ft.strip()):
                         logger.info(f"跳过已完成的比赛: {match_id}")
                         skipped_completed += 1
                     else:
@@ -100,7 +102,7 @@ def run_crawl_task(job_id: int, db: Session):
 
             # 过滤：已有比分(已完成)的比赛直接标记完成，不爬取
             for match in matches:
-                if match.score_ft and match.score_ft.strip():
+                if match.score_ft and re.search(r'\d+-\d+', match.score_ft.strip()):
                     match.crawl_status = "completed"
                     skipped_completed += 1
                 else:

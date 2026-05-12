@@ -9,6 +9,7 @@ from urllib3.util.retry import Retry
 import logging
 import time
 import random
+import re
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
@@ -316,7 +317,7 @@ class OddsCrawler:
             if match:
                 # 如果有比分，认为比赛已完成
                 score_ft = match.score_ft or ""
-                if score_ft.strip():
+                if re.search(r'\d+-\d+', score_ft.strip()):
                     return True
             return False
         finally:

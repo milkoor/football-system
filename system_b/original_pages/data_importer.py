@@ -11,6 +11,7 @@ Validates: Requirements 9.3, 10.2, 16.1, 16.2, 16.4, 16.5, 16.6
 import streamlit as st
 import logging
 import time
+import re
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -337,7 +338,7 @@ def render():
                 for i in range(0, len(all_completed), batch_size):
                     batch = all_completed[i:i+batch_size]
                     # 分出已有比分(已完成)的比赛，跳过X值计算
-                    active = [m for m in batch if not m.get('score_ft', '').strip()]
+                    active = [m for m in batch if not re.search(r'\d+-\d+', m.get('score_ft', '').strip())]
                     done_count = len(batch) - len(active)
 
                     results = []
@@ -371,7 +372,7 @@ def render():
                                     link=r.get('movement_url', ''),
                                     play_type='HDP',
                                     target_team=r.get('target_team', ''),
-                                    is_completed=bool(md.get('score_ft', '').strip()),
+                                    is_completed=bool(re.search(r'\d+-\d+', md.get('score_ft', '').strip())),
                                     match_id=str(md.get('match_id', ''))
                                 )
                                 SettlementCalculator().calculate([record])

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import date, datetime
 import logging
+import re
 
 from config.database import get_db
 from config.models import LeagueIndex, Season
@@ -368,7 +369,7 @@ async def sync_seasons_for_league(
                                     crawl_status="pending"
                                 ))
                             else:
-                                is_done = exist.score_ft and exist.score_ft.strip()
+                                is_done = exist.score_ft and re.search(r'\d+-\d+', exist.score_ft.strip())
                                 if is_done:
                                     new_s = md.get("score_ft", "")
                                     if new_s != exist.score_ft:

@@ -6,6 +6,7 @@
 import logging
 from typing import Optional, List, Dict, Any
 import httpx
+import re
 
 from config.settings import get_settings
 from modules.x_calculator import XValueCalculator
@@ -238,7 +239,7 @@ class DataConnector:
         for match in matches:
             match_id = match["match_id"]
             # 已有比分的已完成比赛，跳过X值计算
-            if match.get("score_ft", "").strip():
+            if re.search(r'\d+-\d+', match.get('score_ft', '').strip()):
                 skipped += 1
                 continue
             try:
