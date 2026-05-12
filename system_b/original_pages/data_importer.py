@@ -173,15 +173,12 @@ def render():
     busy = st.session_state.sync_busy
 
     if following:
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns([1, 1])
         with col1:
             st.metric("关注赛季数量", len(following))
         with col2:
-            total = sum(connector.get_matches(league_id=item['league_id'], page=1, page_size=1).get('total', 0) for item in following)
-            st.metric("总比赛数", total)
-        with col3:
-            pending = sum(connector.get_matches(league_id=item['league_id'], crawl_status='pending', page=1, page_size=1).get('total', 0) for item in following)
-            st.metric("待爬取赔率", pending)
+            completed = sum(connector.get_matches(league_id=item['league_id'], crawl_status='completed', page=1, page_size=1).get('total', 0) for item in following)
+            st.metric("已爬取比赛数", completed)
 
         step = st.session_state.sync_step
 
