@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # 忽略 System A 的额外环境变量
 
 
 @lru_cache()

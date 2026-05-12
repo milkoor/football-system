@@ -19,7 +19,7 @@ class DataConnector:
 
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or settings.system_a_api_url
-        self.client = httpx.Client(timeout=30.0)
+        self.client = httpx.Client(timeout=120.0)
 
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         """发送 HTTP 请求"""
@@ -138,8 +138,8 @@ class DataConnector:
         result = self._request("GET", "/api/crawl/jobs", params=params)
         return result
 
-    def get_crawl_job(self, job_id: int) -> Dict:
-        """获取单个爬虫任务详情"""
+    def get_crawl_job(self, job_id) -> Dict:
+        """获取单个爬虫任务详情（支持数据库ID或job_uuid字符串）"""
         result = self._request("GET", f"/api/crawl/jobs/{job_id}")
         return result
 
