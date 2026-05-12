@@ -269,7 +269,6 @@ def render():
             if st.button("🔄 立即执行", type="secondary", key="btn_trigger_auto_sync"):
                 try:
                     from modules.auto_sync import SyncScheduler
-                    from modules.follow_list import get_follow_manager
                     from config.settings import get_settings
                     SyncScheduler(
                         connector=connector,
