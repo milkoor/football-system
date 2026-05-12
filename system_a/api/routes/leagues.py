@@ -1,6 +1,7 @@
 """联赛路由"""
 
 from typing import List, Optional
+import threading
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,6 +15,9 @@ from config.models import LeagueIndex, Season
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# 全局爬虫并发限流 — 最多 3 个同步任务同时爬 titan007
+_sync_semaphore = threading.Semaphore(3)
 
 
 # ============ Pydantic 模型 ============
@@ -278,119 +282,103 @@ async def sync_seasons_for_league(
         import random as _random
         import time as _time
 
-        # 随机错峰启动（0~8s），避免大量 BackgroundTask 同时发请求给 titan007
-        _time.sleep(_random.uniform(0, 8))
-
-        from config.database import SessionLocal
-        db = SessionLocal()
+        # 全局限流：最多 3 个任务同时爬 titan007，超时 10 分钟
+        if not _sync_semaphore.acquire(timeout=600):
+            logger.warning(f"同步任务 {job_id} 等待信号量超时，跳过")
+            return
 
         try:
-            job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-            if job:
-                job.status = "running"
-                job.started_at = datetime.utcnow()
-                db.commit()
+            _time.sleep(_random.uniform(0, 3))
+            from config.database import SessionLocal
+            db = SessionLocal()
 
-            crawler = LeagueCrawler()
-
-            total_matches = 0
-            completed_matches = 0
-            failed_matches = 0
-
-            # 简单处理：直接从最近赛季开始获取
-            for season in season_labels:
-                try:
-                    matches = crawler.get_season_schedules(
-                        league_id=league.league_id,
-                        season=season
-                    )
-
-                    # 添加或更新赛季记录
-                    existing_season = db.query(Season).filter(
-                        Season.league_id == league_id,
-                        Season.season_label == season
-                    ).first()
-
-                    if not existing_season:
-                        new_season = Season(
-                            league_id=league_id,
-                            season_label=season,
-                            status="active"
-                        )
-                        db.add(new_season)
-                        db.commit()
-
-                    # 添加或更新比赛（智能同步：跳过已完成的比赛）
-                    for match_data in matches:
-                        match_id = match_data.get("match_id")
-                        if not match_id:
-                            continue
-
-                        existing_match = db.query(Match).filter(
-                            Match.match_id == match_id
-                        ).first()
-
-                        if not existing_match:
-                            new_match = Match(
-                                match_id=match_id,
-                                league_id=league_id,
-                                league_name=match_data.get("league_name", ""),
-                                season=match_data.get("season", season),
-                                round_name=match_data.get("round_name", ""),
-                                match_time=match_data.get("match_time_str", ""),
-                                home_team=match_data.get("home_team", ""),
-                                away_team=match_data.get("away_team", ""),
-                                score_ft=match_data.get("score_ft", ""),
-                                crawl_status="pending"
-                            )
-                            db.add(new_match)
-                        else:
-                            # ============ 智能同步：检查比赛是否已完成 ============
-                            is_completed = existing_match.score_ft and existing_match.score_ft.strip()
-
-                            if is_completed:
-                                # ⚡ 已完成的比赛：只更新比分（防止比分变化），其他字段跳过
-                                logger.info(f"比赛 {match_id} 已完成，仅更新比分字段")
-                                new_score = match_data.get("score_ft", "")
-                                if new_score != existing_match.score_ft:
-                                    existing_match.score_ft = new_score
-                                    logger.info(f"比赛 {match_id} 比分已更新: {existing_match.score_ft} -> {new_score}")
-                            else:
-                                # 📝 未完成的比赛：更新所有字段
-                                existing_match.round_name = match_data.get("round_name", "")
-                                existing_match.home_team = match_data.get("home_team", "")
-                                existing_match.away_team = match_data.get("away_team", "")
-                                existing_match.score_ft = match_data.get("score_ft", "")
-
+            try:
+                job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                if job:
+                    job.status = "running"
+                    job.started_at = datetime.utcnow()
                     db.commit()
-                    total_matches += len(matches)
-                    completed_matches += len(matches)
-                    logger.info(f"联赛 {league_id} {season} 赛季同步了 {len(matches)} 场比赛")
 
-                except Exception as e:
-                    logger.error(f"赛季 {season} 同步失败: {e}")
-                    failed_matches += 1
+                crawler = LeagueCrawler()
+                season_labels = crawler.get_available_seasons(league.league_id)
 
-            # 更新任务状态
-            job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-            if job:
-                job.status = "completed"
-                job.completed_at = datetime.utcnow()
-                job.total_matches = total_matches
-                job.completed_matches = completed_matches
-                job.failed_matches = failed_matches
-                db.commit()
+                total_matches = 0
+                completed_matches = 0
+                failed_matches = 0
 
-        except Exception as e:
-            logger.error(f"联赛 {league_id} 同步失败: {e}")
-            job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-            if job:
-                job.status = "failed"
-                job.completed_at = datetime.utcnow()
-                job.error_message = str(e)
-                db.commit()
+                for season in season_labels:
+                    try:
+                        matches = crawler.get_season_schedules(
+                            league_id=league.league_id, season=season
+                        )
+
+                        existing_season = db.query(Season).filter(
+                            Season.league_id == league_id,
+                            Season.season_label == season
+                        ).first()
+                        if not existing_season:
+                            db.add(Season(
+                                league_id=league_id, season_label=season, status="active"
+                            ))
+                            db.commit()
+
+                        for md in matches:
+                            mid = md.get("match_id")
+                            if not mid:
+                                continue
+                            exist = db.query(Match).filter(Match.match_id == mid).first()
+                            if not exist:
+                                db.add(Match(
+                                    match_id=mid, league_id=league_id,
+                                    league_name=md.get("league_name", ""),
+                                    season=md.get("season", season),
+                                    round_name=md.get("round_name", ""),
+                                    match_time=md.get("match_time_str", ""),
+                                    home_team=md.get("home_team", ""),
+                                    away_team=md.get("away_team", ""),
+                                    score_ft=md.get("score_ft", ""),
+                                    crawl_status="pending"
+                                ))
+                            else:
+                                is_done = exist.score_ft and exist.score_ft.strip()
+                                if is_done:
+                                    new_s = md.get("score_ft", "")
+                                    if new_s != exist.score_ft:
+                                        exist.score_ft = new_s
+                                else:
+                                    exist.round_name = md.get("round_name", "")
+                                    exist.home_team = md.get("home_team", "")
+                                    exist.away_team = md.get("away_team", "")
+                                    exist.score_ft = md.get("score_ft", "")
+
+                        db.commit()
+                        total_matches += len(matches)
+                        completed_matches += len(matches)
+                    except Exception as e:
+                        logger.error(f"赛季 {season} 同步失败: {e}")
+                        failed_matches += 1
+
+                j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                if j:
+                    j.status = "completed"
+                    j.completed_at = datetime.utcnow()
+                    j.total_matches = total_matches
+                    j.completed_matches = completed_matches
+                    j.failed_matches = failed_matches
+                    db.commit()
+
+            except Exception as e:
+                logger.error(f"联赛 {league_id} 同步失败: {e}")
+                j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                if j:
+                    j.status = "failed"
+                    j.completed_at = datetime.utcnow()
+                    j.error_message = str(e)
+                    db.commit()
+            finally:
+                db.close()
         finally:
-            db.close()
+            _sync_semaphore.release()
 
     background_tasks.add_task(do_sync_schedule, job.id)
     return {"message": f"联赛 {league_id} 赛季同步任务已启动", "status": "started", "job_id": job.job_id}
