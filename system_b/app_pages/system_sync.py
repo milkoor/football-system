@@ -48,14 +48,14 @@ def render():
         st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
 
     with col2:
-        st.metric("賽季記錄數", season_count)
+        st.metric("賽季標籤", season_count, help="一批同步创建的赛季名称记录，不含比赛数据。比赛数据需在数据导入页关注后同步。")
 
     with col3:
         try:
             stats = connector.get_crawl_stats()
-            st.metric("總比賽數", stats.get('total_matches', 0))
+            st.metric("比賽數據(已下載)", stats.get('total_matches', 0))
         except Exception as e:
-            st.metric("總比賽數", "❌")
+            st.metric("比賽數據", "❌")
             logger.warning(f"獲取總比賽數失敗: {e}")
 
     with col4:
