@@ -191,14 +191,35 @@ class LeagueCrawler:
         """
         matches = []
 
-        if season:
-            # 新的赛季数据 URL 格式：/jsData/matchResult/赛季/s联赛ID.js
+        # 先从联赛页面提取赛季数据 URL（titan007 使用 s{id}_{instance}.js 新格式）
+        data_url = None
+        try:
+            league_url = f"{self.BASE_URL}/big/League/{league_id}.html"
+            resp = self.session.get(league_url, timeout=15)
+            if resp.status_code == 200:
+                import re as _re
+                # 找 /jsData/matchResult/{season}/s{league_id}_{instance}.js
+                pattern = _re.escape(f"/jsData/matchResult/") + r"[^\"']*" + _re.escape(f"s{league_id}_") + r"\d+\.js"
+                found = _re.search(pattern, resp.text)
+                if found:
+                    data_url = f"{self.INFO_URL}{found.group()}"
+        except Exception as e:
+            logger.debug(f"获取联赛 {league_id} 页面失败: {e}")
+
+        # 用提取到的 URL 获取赛季数据
+        if data_url and season:
+            url = data_url
+            html = self._get_html(url)
+            if html and "对不起！你查看的页面不存在" not in html:
+                matches = self._parse_schedule_js(html, league_id, season)
+
+        # 回退到旧格式
+        if not matches and season:
             url = f"{self.INFO_URL}/jsData/matchResult/{season}/s{league_id}.js"
             html = self._get_html(url)
             if html and "对不起！你查看的页面不存在" not in html:
                 matches = self._parse_schedule_js(html, league_id, season)
 
-        # 如果没有获取到真实数据，尝试不带赛季的URL
         if not matches:
             logger.warning(f"没有找到赛季 {season} 的数据，尝试不带赛季的URL")
             url = f"{self.INFO_URL}/jsData/matchResult/s{league_id}.js"
@@ -206,7 +227,6 @@ class LeagueCrawler:
             if html and "对不起！你查看的页面不存在" not in html:
                 matches = self._parse_schedule_js(html, league_id, season or str(datetime.now().year))
 
-        # 如果还是没有获取到真实数据，返回模拟数据
         if not matches:
             logger.warning(f"无法获取联赛 {league_id} 的真实赛程数据，使用模拟数据")
             matches = MOCK_MATCHES.get(league_id, [])
@@ -506,19 +526,27 @@ class LeagueCrawler:
         解析 infoHeaderFn.js 文件，该文件包含所有联赛的所有可用赛季。
         避免逐个联赛调用 get_available_seasons（需要 5-8 HTTP 请求/联赛）。
 
+        如果 HTTP 请求被 WAF 阻断，使用缓存的 season 数据作为 fallback。
+
         Returns:
             {league_titan_id: [season_label1, season_label2, ...]}
         """
         import re as _re
+        import json as _json
+        import os as _os
 
         url = "https://zq.titan007.com/jsData/infoHeaderFn.js"
         html = self._get_html(url)
         if not html:
-            logger.error("无法获取 infoHeaderFn.js，回退到逐个联赛探测")
+            logger.warning("infoHeaderFn.js 请求失败，尝试使用缓存文件")
+            cache_path = _os.path.join(_os.path.dirname(__file__), "..", "data", "seasons_cache.json")
+            if _os.path.exists(cache_path):
+                with open(cache_path) as f:
+                    return _json.load(f)
+            logger.error("缓存文件不存在，返回空数据")
             return {}
 
         result: Dict[int, List[str]] = {}
-        # 格式: arr[N] = ["InfoID_N","地区名","图片","标志",["联赛ID,联赛名,flag1,flag2,赛季1,赛季2,...", ...]];
         for m in _re.finditer(r'\"(\d+),([^,\"]+),(\d+),(\d+),(.*?)\"', html):
             try:
                 lid = int(m.group(1))
@@ -528,6 +556,15 @@ class LeagueCrawler:
                     result[lid] = seasons
             except (ValueError, IndexError):
                 continue
+
+        # 保存缓存供下次使用
+        try:
+            cache_dir = _os.path.dirname(__file__) + "/../data"
+            _os.makedirs(cache_dir, exist_ok=True)
+            with open(_os.path.join(cache_dir, "seasons_cache.json"), "w") as f:
+                _json.dump(result, f)
+        except Exception as e:
+            logger.warning(f"保存赛季缓存失败: {e}")
 
         logger.info(f"fetch_all_seasons: 共获取 {len(result)} 个联赛的赛季信息")
         return result
