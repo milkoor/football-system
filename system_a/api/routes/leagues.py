@@ -426,13 +426,6 @@ async def batch_sync_seasons(
         import logging as _logging
         _log = _logging.getLogger(__name__)
 
-        # 获取所有联赛的赛季列表（一次 HTTP 请求）
-        crawler = LeagueCrawler()
-        all_seasons = crawler.fetch_all_seasons()
-        if not all_seasons:
-            _log.error("batch_sync: fetch_all_seasons 失败")
-            return
-
         from config.database import SessionLocal as _SessionLocal
         db = _SessionLocal()
 
@@ -443,115 +436,50 @@ async def batch_sync_seasons(
                 job.started_at = datetime.utcnow()
                 db.commit()
 
+            # 一次 HTTP 请求获取所有联赛的赛季标签
+            crawler = LeagueCrawler()
+            all_seasons = crawler.fetch_all_seasons()
+            if not all_seasons:
+                _log.error("batch_sync: fetch_all_seasons 失败")
+                return
+
             leagues = db.query(LeagueIndex).filter(LeagueIndex.enabled == True).all()
+            created = 0
+            skipped = 0
 
-            # 收集所有需要抓取的 (titan_id, season) 任务
-            all_tasks: list[tuple[int, str, int]] = []  # (titan_id, season, db_league_id)
             for league in leagues:
-                titan_id = league.league_id
-                season_labels = all_seasons.get(titan_id, [])
-                if not season_labels:
+                labels = all_seasons.get(league.league_id, [])
+                if not labels:
                     continue
-                recent = [s for s in season_labels if s in (
-                    f"{datetime.now().year-1}-{datetime.now().year}",
-                    f"{datetime.now().year-2}-{datetime.now().year-1}",
-                    str(datetime.now().year),
-                    str(datetime.now().year-1),
-                )]
-                if not recent:
-                    recent = season_labels[:2]
-                for s in recent:
-                    all_tasks.append((titan_id, s, league.id))
+                for label in labels:
+                    exist = db.query(Season).filter(
+                        Season.league_id == league.id,
+                        Season.season_label == label
+                    ).first()
+                    if not exist:
+                        db.add(Season(
+                            league_id=league.id,
+                            season_label=label,
+                            status="active"
+                        ))
+                        created += 1
+                    else:
+                        skipped += 1
 
-            total_tasks = len(all_tasks)
-            _log.info(f"batch_sync: 共 {total_tasks} 个赛季待抓取")
-
-            # 分批并发抓取（每批 50 个赛季，10 并发）
-            batch_size = 50
-            done = 0
-            total_matches = 0
-            failed = 0
-
-            for batch_start in range(0, total_tasks, batch_size):
-                batch = all_tasks[batch_start:batch_start + batch_size]
-                fetch_tasks = [(tid, season) for tid, season, _ in batch]
-
-                raw_data = crawler.batch_fetch_seasons(fetch_tasks)
-
-                # 解析并入库
-                for idx, (tid, season, db_lid) in enumerate(batch):
-                    key = f"{tid}_{season}"
-                    matches = raw_data.get(key, [])
-                    if not matches:
-                        continue
-
-                    try:
-                        es = db.query(Season).filter(
-                            Season.league_id == db_lid,
-                            Season.season_label == season
-                        ).first()
-                        if not es:
-                            db.add(Season(
-                                league_id=db_lid, season_label=season, status="active"
-                            ))
-                            db.commit()
-
-                        for md in matches:
-                            mid = md.get("match_id")
-                            if not mid:
-                                continue
-                            exist = db.query(Match).filter(Match.match_id == mid).first()
-                            if not exist:
-                                db.add(Match(
-                                    match_id=mid, league_id=db_lid,
-                                    league_name=md.get("league_name", ""),
-                                    season=md.get("season", season),
-                                    round_name=md.get("round_name", ""),
-                                    match_time=md.get("match_time_str", ""),
-                                    home_team=md.get("home_team", ""),
-                                    away_team=md.get("away_team", ""),
-                                    score_ft=md.get("score_ft", ""),
-                                    crawl_status="pending"
-                                ))
-                            else:
-                                is_done = exist.score_ft and exist.score_ft.strip()
-                                if is_done:
-                                    ns = md.get("score_ft", "")
-                                    if ns != exist.score_ft:
-                                        exist.score_ft = ns
-                                else:
-                                    exist.round_name = md.get("round_name", "")
-                                    exist.home_team = md.get("home_team", "")
-                                    exist.away_team = md.get("away_team", "")
-                                    exist.score_ft = md.get("score_ft", "")
-
-                        db.commit()
-                        total_matches += len(matches)
-                    except Exception as e:
-                        _log.error(f"保存联赛 {tid} {season} 失败: {e}")
-                        failed += 1
-
-                done += len(batch)
-                j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-                if j:
-                    j.total_matches = done
-                    j.completed_matches = total_matches
-                    j.failed_matches = failed
-                    db.commit()
-                _log.info(f"batch_sync: {done}/{total_tasks} 赛季, {total_matches} 场比赛")
+            db.commit()
 
             j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
             if j:
                 j.status = "completed"
                 j.completed_at = datetime.utcnow()
-                j.total_matches = done
-                j.completed_matches = total_matches
-                j.failed_matches = failed
+                j.total_matches = created
+                j.completed_matches = skipped
                 db.commit()
-            _log.info(f"batch_sync: 完成！{total_matches} 场比赛, 失败 {failed}")
+
+            _log.info(f"batch_sync: 完成！创建 {created} 个赛季记录, 跳过 {skipped} 个已有记录")
 
         except Exception as e:
-            _log.error(f"batch_sync: 整体失败: {e}")
+            _log.error(f"batch_sync: 失败: {e}")
             j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
             if j:
                 j.status = "failed"

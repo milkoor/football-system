@@ -154,20 +154,20 @@ def render():
                     st.rerun()
             else:
                 status = job.get('status', 'unknown')
-                seasons_done = job.get('total_matches', 0)
-                match_count = job.get('completed_matches', 0)
+                created = job.get('total_matches', 0)
+                skipped = job.get('completed_matches', 0)
                 failed = job.get('failed_matches', 0)
 
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
                     st.metric("狀態", status)
                 with col_b:
-                    st.metric("已抓取比賽", match_count)
+                    st.metric("新增賽季記錄", created)
                 with col_c:
-                    st.metric("失敗", failed)
+                    st.metric("已存在(跳過)", skipped)
 
                 if status == "completed":
-                    st.success(f"🎉 批量同步完成！抓取 {match_count} 場比賽，失敗 {failed}")
+                    st.success(f"🎉 批量同步完成！新增 {created} 個賽季記錄，跳過 {skipped}")
                     st.session_state.batch_in_progress = False
                     st.session_state.batch_job_id = None
                 elif status == "failed":
@@ -176,8 +176,8 @@ def render():
                     st.session_state.batch_job_id = None
                 else:
                     elapsed = time.time() - (st.session_state.batch_start_time or time.time())
-                    st.info(f"⏳ 同步進行中… 已用 {elapsed:.0f}s，已抓取 {match_count} 場比賽")
-                    time.sleep(5)
+                    st.info(f"⏳ 同步進行中… 已用 {elapsed:.0f}s")
+                    time.sleep(3)
                     st.rerun()
         except Exception as e:
             st.warning(f"獲取進度失敗: {e}，5 秒後重試")
