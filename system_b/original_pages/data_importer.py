@@ -93,21 +93,33 @@ def render():
                 if selected_league_name and selected_league_name != "請選擇聯賽":
                     selected_league = league_options[selected_league_name]
 
-                    # 获取该联赛的赛季列表
+                    # 获取该联赛的赛季列表（从API同步的结果）
                     seasons = connector.get_seasons(selected_league['id'])
+
+                    # 本地生成期望的赛季标签（当前年-1 ~ 当前年-4），作为 API 结果的兜底
+                    _cur = datetime.now().year
+                    _expected_labels = [
+                        f"{_cur - y - 1}-{_cur - y}"
+                        for y in range(4)  # 生成最近 4 个赛季
+                    ]
+
+                    # 合并 API 赛季 + 本地生成的赛季标签
+                    season_options = {}
                     if seasons:
-                        season_options = {
-                            s['season_label']: s for s in seasons
-                        }
+                        for s in seasons:
+                            season_options[s['season_label']] = s
+                    for lbl in _expected_labels:
+                        if lbl not in season_options:
+                            season_options[lbl] = {"season_label": lbl}
 
-                        selected_season_name = st.selectbox(
-                            "选择赛季",
-                            ["請選擇賽季"] + list(season_options.keys()),
-                            index=0
-                        )
+                    selected_season_name = st.selectbox(
+                        "选择赛季",
+                        ["請選擇賽季"] + list(season_options.keys()),
+                        index=0
+                    )
 
-                        if selected_season_name and selected_season_name != "請選擇賽季":
-                            selected_season = season_options[selected_season_name]
+                    if selected_season_name and selected_season_name != "請選擇賽季":
+                        selected_season = season_options[selected_season_name]
 
                 if selected_league and selected_season:
                     if st.button("➕ 添加到关注名单", type="primary"):
