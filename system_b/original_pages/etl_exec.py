@@ -175,6 +175,41 @@ def render():
     if has_groups and not has_assignment_teams:
         st.warning("尚未為任何聯賽配置分組隊伍。請先至「隊伍分組」頁面設定各聯賽的隊伍。")
 
+    if not etl_ready:
+        if st.button("⚡ 快速配置（自動建立分組並分配全部隊伍）", type="secondary", key="btn_auto_setup"):
+            with st.spinner("正在自動配置..."):
+                if not has_groups:
+                    for gn in ("Top", "Mid", "Weak"):
+                        store.create_global_group(name=gn, display_name=None)
+                    global_groups = store.list_global_groups()
+                    has_groups = True
+
+                from modules.data_connector import get_connector
+                conn = get_connector()
+                for lg, curr_si, _, _, _ in ready_leagues:
+                    for gg in global_groups:
+                        existing = store.get_league_group_teams(lg.id, gg.id, "current")
+                        if not existing:
+                            try:
+                                mr = conn.get_matches(league_id=lg.id, page=1, page_size=200)
+                                all_matches = mr.get('matches') or mr.get('data') or []
+                                all_teams = set()
+                                for m in all_matches:
+                                    if m.get('home_team'): all_teams.add(m['home_team'])
+                                    if m.get('away_team'): all_teams.add(m['away_team'])
+                                if all_teams:
+                                    store.set_league_group_teams(lg.id, gg.id, "current", list(all_teams))
+                            except:
+                                pass
+
+                has_assignment_teams = any(
+                    store.get_all_league_group_teams(lg.id)
+                    for lg, _, _, _, _ in ready_leagues
+                )
+                etl_ready = has_groups and has_assignment_teams
+                st.success("✅ 自動配置完成，現在可以執行 ETL！")
+                st.rerun()
+
     etl_ready = has_groups and has_assignment_teams
 
     # ---------------------------------------------------------------------------
