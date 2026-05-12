@@ -175,6 +175,8 @@ def render():
     if has_groups and not has_assignment_teams:
         st.warning("尚未為任何聯賽配置分組隊伍。請先至「隊伍分組」頁面設定各聯賽的隊伍。")
 
+    etl_ready = has_groups and has_assignment_teams
+
     if not etl_ready:
         if st.button("⚡ 快速配置（自動建立分組並分配全部隊伍）", type="secondary", key="btn_auto_setup"):
             with st.spinner("正在自動配置..."):
@@ -209,8 +211,6 @@ def render():
                 etl_ready = has_groups and has_assignment_teams
                 st.success("✅ 自動配置完成，現在可以執行 ETL！")
                 st.rerun()
-
-    etl_ready = has_groups and has_assignment_teams
 
     # ---------------------------------------------------------------------------
     # 執行 ETL
