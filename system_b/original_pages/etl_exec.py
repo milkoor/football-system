@@ -188,15 +188,19 @@ def render():
 
                 from modules.data_connector import get_connector
                 conn = get_connector()
-                # 建立 System B league_id → System A league_id 映射
-                sa_id_map = {}
-                for al in conn.get_leagues(enabled=True):
-                    sa_id_map[al['id']] = al
+                sa_leagues = {al['id']: al for al in conn.get_leagues(enabled=True)}
 
                 for lg, curr_si, _, _, _ in ready_leagues:
-                    # 从 league.code (如 LEAGUE_7996) 提取 System A ID
+                    # 从 league.code 提取 System A ID，如果失效则按名称查找
                     sa_id = int(lg.code.replace("LEAGUE_", ""))
-                    sa_league = sa_id_map.get(sa_id)
+                    if sa_id not in sa_leagues:
+                        # ID 已过期，按 league.name_zh 在 System A 中查找
+                        for al_id, al in sa_leagues.items():
+                            aname = al.get('league_name_tw', '') or al.get('league_name_zh', '')
+                            if lg.name_zh in aname or aname in lg.name_zh:
+                                sa_id = al_id
+                                break
+                    sa_league = sa_leagues.get(sa_id)
                     if not sa_league:
                         continue
                     for gg in global_groups:
