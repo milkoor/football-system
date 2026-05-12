@@ -165,9 +165,13 @@ def render():
     st.subheader("完整同步")
 
     if "sync_step" not in st.session_state:
-        st.session_state.sync_step = None  # None / 'sync' / 'crawl' / 'xcalc' / 'done'
+        st.session_state.sync_step = None
+    if "sync_busy" not in st.session_state:
+        st.session_state.sync_busy = False
 
     following = follow_manager.get_all()
+    busy = st.session_state.sync_busy
+
     if following:
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -180,20 +184,34 @@ def render():
             st.metric("待爬取赔率", pending)
 
         step = st.session_state.sync_step
+
+        # ---- 状态显示 ----
+        status_map = {
+            'sync': '⏳ 步骤1/3: 触发赛程同步...',
+            'poll_sync': '⏳ 步骤1/3: 等待赛程同步完成...',
+            'crawl': '⏳ 步骤2/3: 触发赔率爬取...',
+            'poll_crawl': '⏳ 步骤2/3: 正在爬取赔率...',
+            'xcalc': '⏳ 步骤3/3: 计算X值并导入系统B...',
+        }
+        if step in status_map:
+            st.info(status_map[step])
+
+        # ---- 步骤执行 ----
         if step is None:
             col_a, col_b = st.columns([1, 1])
             with col_a:
-                if st.button("🚀 完整同步（赛程→赔率→X值）", type="primary", key="btn_full_sync"):
+                if st.button("🚀 完整同步（赛程→赔率→X值）", type="primary", key="btn_full_sync", disabled=busy):
                     st.session_state.sync_step = 'sync'
+                    st.session_state.sync_busy = True
                     st.session_state.sync_results = []
                     st.rerun()
             with col_b:
-                if st.button("📥 仅导入到系统B（跳过爬虫）", type="secondary", key="btn_import_only"):
+                if st.button("📥 仅导入到系统B", type="secondary", key="btn_import_only", disabled=busy):
                     st.session_state.sync_step = 'xcalc'
+                    st.session_state.sync_busy = True
                     st.rerun()
 
         elif step == 'sync':
-            st.caption("步骤 1/3: 同步赛程...")
             pending_jobs = []
             for item in following:
                 try:
@@ -203,13 +221,11 @@ def render():
                         pending_jobs.append(jid)
                 except Exception as e:
                     st.warning(f"{item['league_name']} 同步触发失败: {e}")
-
             st.session_state.sync_pending = pending_jobs
             st.session_state.sync_step = 'poll_sync'
             st.rerun()
 
         elif step == 'poll_sync':
-            st.caption("步骤 1/3: 等待赛程同步完成...")
             remaining = []
             for jid in st.session_state.get('sync_pending', []):
                 try:
@@ -218,9 +234,11 @@ def render():
                         remaining.append(jid)
                 except:
                     remaining.append(jid)
-            st.progress((len(st.session_state.sync_pending) - len(remaining)) / max(len(st.session_state.sync_pending), 1))
+            total_sync = len(st.session_state.sync_pending)
+            done_sync = total_sync - len(remaining)
+            if total_sync > 0:
+                st.progress(done_sync / total_sync, text=f"已完成 {done_sync}/{total_sync}")
             if remaining:
-                st.info(f"等待 {len(remaining)} 个同步任务完成...")
                 time.sleep(3)
                 st.rerun()
             else:
@@ -229,7 +247,6 @@ def render():
                 st.rerun()
 
         elif step == 'crawl':
-            st.caption("步骤 2/3: 触发赔率爬取...")
             crawl_jobs = []
             for item in following:
                 try:
@@ -239,33 +256,45 @@ def render():
                         crawl_jobs.append(jid)
                 except Exception as e:
                     st.warning(f"{item['league_name']} 爬取触发失败: {e}")
-
             st.session_state.crawl_pending = crawl_jobs
             st.session_state.sync_step = 'poll_crawl'
             st.rerun()
 
         elif step == 'poll_crawl':
-            st.caption("步骤 2/3: 等待赔率爬取完成...")
+            total_task = 0
+            done_task = 0
             remaining = []
             for jid in st.session_state.get('crawl_pending', []):
                 try:
                     job = connector.get_crawl_job(jid)
-                    if job and job.get('status') in ('running', 'pending', None):
-                        remaining.append(jid)
+                    if job:
+                        s = job.get('status')
+                        if s in ('running', 'pending', None):
+                            remaining.append(jid)
+                        total_task += job.get('total_matches', 0)
+                        done_task += job.get('completed_matches', 0) + job.get('failed_matches', 0)
                 except:
                     remaining.append(jid)
-            st.progress((len(st.session_state.crawl_pending) - len(remaining)) / max(len(st.session_state.crawl_pending), 1))
-            if remaining:
-                st.info(f"等待 {len(remaining)} 个爬取任务完成...")
-                time.sleep(3)
+
+            if total_task > 0:
+                st.progress(min(done_task / total_task, 1.0),
+                           text=f"已处理 {done_task}/{total_task} 场比赛")
+            else:
+                st.progress(0.5, text="等待爬虫开始...")
+
+            col_skip, _ = st.columns([1, 3])
+            with col_skip:
+                skip = st.button("⏭️ 先看结果, 稍后继续爬", key="btn_skip_crawl")
+
+            if remaining and not skip:
+                time.sleep(5)
                 st.rerun()
             else:
-                st.success("✅ 赔率爬取完成")
+                st.success("✅ 赔率爬取完成" if not remaining else "⏭️ 已跳过爬虫等待")
                 st.session_state.sync_step = 'xcalc'
                 st.rerun()
 
         elif step == 'xcalc':
-            st.caption("步骤 3/3: 计算X值并导入系统B...")
             all_completed = []
             for item in following:
                 try:
@@ -274,6 +303,25 @@ def render():
                         all_completed.append(m)
                 except:
                     pass
+            # 也获取 pending 的(可能爬虫还在跑但用户跳过了)
+            all_pending = []
+            for item in following:
+                try:
+                    mr = connector.get_matches(league_id=item['league_id'], crawl_status='pending', page=1, page_size=10000)
+                    for m in (mr.get('matches') or mr.get('data') or []):
+                        all_pending.append(m)
+                except:
+                    pass
+
+            total_found = len(all_completed) + len(all_pending)
+            if all_completed or all_pending:
+                st.info(f"找到 {len(all_completed)} 场已爬取 + {len(all_pending)} 场待爬取的比赛，共 {total_found} 场")
+            else:
+                st.warning("⚠️ 数据库中没有比赛数据。请先点击「完整同步」完成赛程同步。")
+                if st.button("← 返回", key="btn_back_from_xcalc"):
+                    st.session_state.sync_step = None
+                    st.session_state.sync_busy = False
+                    st.rerun()
 
             if all_completed:
                 batch_size = 100
@@ -320,16 +368,22 @@ def render():
                                 logger.error(f"导入失败: {e}")
                     prog.progress(min((i + batch_size) / len(all_completed), 1.0))
 
-                st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录")
+                st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录到系统B")
+                st.info("💡 接下来请点击「运行ETL」生成报表，然后前往「报表看板」查看决策信号。")
+            elif all_pending:
+                st.warning("比赛数据已同步，但赔率尚未爬取完成。请等待爬虫结束后再次点击「仅导入到系统B」。")
             else:
-                st.warning("没有已同步的比赛数据")
+                st.warning("暂无数据可导入。")
 
             st.session_state.sync_step = 'done'
+            st.session_state.sync_busy = False
             st.rerun()
 
         else:  # done
-            st.success("✅ 完整同步已完成，可再次点击按钮重新同步")
-            if st.button("🔄 重新同步", key="btn_reset_sync"):
+            st.success("✅ 处理完成，可再次点击按钮执行新的同步。")
+            if st.button("🔄 再来一次", key="btn_reset_sync"):
+                st.session_state.sync_step = None
+                st.rerun()
                 st.session_state.sync_step = None
                 st.rerun()
     else:
