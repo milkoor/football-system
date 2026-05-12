@@ -337,16 +337,9 @@ def render():
                 prog = st.progress(0)
                 for i in range(0, len(all_completed), batch_size):
                     batch = all_completed[i:i+batch_size]
-                    # 分出已有比分(已完成)的比赛，跳过X值计算
-                    active = [m for m in batch if not re.search(r'\d+-\d+', m.get('score_ft', '').strip())]
-                    done_count = len(batch) - len(active)
+                    match_ids = [m['match_id'] for m in batch]
 
-                    results = []
-                    if active:
-                        match_ids = [m['match_id'] for m in active]
-                        results = x_calculator.batch_calculate(match_ids)
-                    else:
-                        results = [{"status": "skipped"} for _ in active]
+                    results = x_calculator.batch_calculate(match_ids)
 
                     for r in results:
                         if r.get('status') == 'success':
@@ -356,30 +349,33 @@ def render():
                             except:
                                 pass
 
-                    for idx, (md, r) in enumerate(zip(active, results)):
-                        if r.get('status') == 'success':
-                            try:
-                                lid_b = sync_league_to_system_b(store, connector, md)
-                                sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
-                                from core.models import MatchRecord
-                                from core.settlement import SettlementCalculator
-                                record = MatchRecord(
-                                    round_num=int(md.get('round_name', '1').replace('R_', '')),
-                                    home_team=md.get('home_team', ''),
-                                    away_team=md.get('away_team', ''),
-                                    x_value=r.get('x_value', 0.0),
-                                    settlement='', score=md.get('score_ft', ''),
-                                    link=r.get('movement_url', ''),
-                                    play_type='HDP',
-                                    target_team=r.get('target_team', ''),
-                                    is_completed=bool(re.search(r'\d+-\d+', md.get('score_ft', '').strip())),
-                                    match_id=str(md.get('match_id', ''))
-                                )
-                                SettlementCalculator().calculate([record])
-                                store.upsert_match_records(sid_b, 'HDP', 'Early', [record])
-                                imported += 1
-                            except Exception as e:
-                                logger.error(f"导入失败: {e}")
+                    for idx, (md, r) in enumerate(zip(batch, results)):
+                        try:
+                            x_val = r.get('x_value', 0.0) if r.get('status') == 'success' else 0.0
+                            lid_b = sync_league_to_system_b(store, connector, md)
+                            sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
+                            from core.models import MatchRecord
+                            from core.settlement import SettlementCalculator
+                            record = MatchRecord(
+                                round_num=int(md.get('round_name', '1').replace('R_', '')),
+                                home_team=md.get('home_team', ''),
+                                away_team=md.get('away_team', ''),
+                                x_value=x_val,
+                                settlement='', score=md.get('score_ft', ''),
+                                link=r.get('movement_url', ''),
+                                play_type='HDP',
+                                target_team=r.get('target_team', ''),
+                                is_completed=bool(re.search(r'\d+-\d+', md.get('score_ft', '').strip())),
+                                match_id=str(md.get('match_id', ''))
+                            )
+                            SettlementCalculator().calculate([record])
+                            store.upsert_match_records(sid_b, 'HDP', 'Early', [record])
+                            imported += 1
+                        except Exception as e:
+                            logger.error(f"导入失败: {e}")
+
+                    if results:
+                        success = sum(1 for r in results if r.get('status') == 'success')
 
                     if done_count:
                         st.caption(f"批次 {i//batch_size+1}: 跳过 {done_count} 场已完成比赛")
