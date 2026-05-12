@@ -54,7 +54,7 @@ page_home = st.Page("views/home.py", title="首页", icon="🏠")
 
 # 数据准备分组
 page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄")
-page_data_import = st.Page("views/data_importer.py", title="数据导入", icon="📥")
+page_data_import = st.Page("views/data_importer.py", title="数据导入", icon="📥", url_path="data_importer")
 page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆")
 page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥")
 page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄")
