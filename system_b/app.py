@@ -50,7 +50,7 @@ if 'initialized' not in st.session_state:
     logger.info("应用程序初始化完成")
 
 # 定义所有页面（使用包装文件）
-page_home = st.Page("views/home.py", title="首页", icon="🏠", default=True)
+page_home = st.Page("views/home.py", title="首页", icon="🏠", url_path="home")
 
 # 数据准备分组
 page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄", url_path="system_sync")
