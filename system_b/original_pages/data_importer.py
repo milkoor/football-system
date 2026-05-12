@@ -252,6 +252,38 @@ def render():
     else:
         st.warning("请先添加关注的联赛赛季")
 
+    # ============ 自动同步设定 ============
+    st.divider()
+    with st.expander("⏰ 自动同步设定", expanded=False):
+        col_a, col_b, col_c = st.columns([1, 1, 1])
+        with col_a:
+            auto_enabled = st.checkbox(
+                "启用自动同步", value=True,
+                key="auto_sync_enabled",
+                help="启用后按设定时间间隔自动同步关注联赛的比赛、赔率并计算X值"
+            )
+        with col_b:
+            st.number_input(
+                "同步间隔（小时）", min_value=1, max_value=168, value=24,
+                key="auto_sync_interval"
+            )
+        with col_c:
+            st.caption("当前状态")
+            st.metric("自动同步", "🟢 运行中" if st.session_state.get("auto_sync_enabled", True) else "🔴 已停用")
+            if st.button("🔄 立即执行", type="secondary", key="btn_trigger_auto_sync"):
+                try:
+                    from modules.auto_sync import SyncScheduler
+                    from modules.follow_list import get_follow_manager
+                    from config.settings import get_settings
+                    SyncScheduler(
+                        connector=connector,
+                        follow_manager=get_follow_manager(),
+                        settings=get_settings()
+                    ).run_sync_job()
+                    st.success("✅ 自动同步任务已执行完成")
+                except Exception as e:
+                    st.error(f"❌ 执行自动同步失败: {e}")
+
     # ============ 下载赔率 ============
     st.divider()
     st.subheader("下载赔率")

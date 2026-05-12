@@ -54,50 +54,6 @@ def render():
 
     st.divider()
 
-    # ============ 自動同步設定 ============
-    with st.expander("⏰ 自動同步設定", expanded=False):
-        col1, col2, col3 = st.columns([1, 1, 1])
-
-        with col1:
-            auto_enabled = st.checkbox(
-                "啟用自動同步",
-                value=st.session_state.get("auto_sync_enabled", True),
-                help="啟用後將定時自動同步關注聯賽的賽程和賠率"
-            )
-            st.session_state.auto_sync_enabled = auto_enabled
-
-        with col2:
-            interval_hours = st.number_input(
-                "同步間隔（小時）",
-                min_value=1,
-                max_value=168,
-                value=st.session_state.get("auto_sync_interval", 24),
-                help="每隔多少小時自動執行一次同步"
-            )
-            st.session_state.auto_sync_interval = interval_hours
-
-        with col3:
-            st.caption("當前狀態")
-            status_text = "🟢 運行中" if st.session_state.get("auto_sync_enabled", True) else "🔴 已停用"
-            st.metric("自動同步", status_text)
-            st.caption(f"間隔: {st.session_state.get('auto_sync_interval', 24)} 小時")
-            if st.button("🔄 立即執行自動同步", type="secondary"):
-                try:
-                    from modules.auto_sync import SyncScheduler
-                    from modules.follow_list import get_follow_manager
-                    from config.settings import get_settings
-                    sched = SyncScheduler(
-                        connector=connector,
-                        follow_manager=get_follow_manager(),
-                        settings=get_settings()
-                    )
-                    sched.run_sync_job()
-                    st.success("✅ 自動同步任務已執行完成")
-                except Exception as e:
-                    st.error(f"❌ 執行自動同步失敗: {e}")
-
-    st.divider()
-
     st.subheader("快速操作")
 
     col_clear, col_sync_all = st.columns(2)
