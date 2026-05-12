@@ -530,21 +530,21 @@ async def batch_sync_seasons(
                 if not league_ok:
                     failed_leagues += 1
 
-                # 每处理 10 个联赛更新一次任务进度
-                if processed % 10 == 0:
+                if processed % 5 == 0:
                     j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
                     if j:
-                        j.completed_matches = total_matches
                         j.total_matches = processed
+                        j.completed_matches = total_matches
                         j.failed_matches = failed_leagues
                         db.commit()
+                        _log.info(f"batch_sync: {processed}/{total} 联赛, {total_matches} 场比赛")
 
             # 完成
             j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
             if j:
                 j.status = "completed"
                 j.completed_at = datetime.utcnow()
-                j.total_matches = total_matches
+                j.total_matches = processed
                 j.completed_matches = total_matches
                 j.failed_matches = failed_leagues
                 db.commit()

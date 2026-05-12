@@ -24,10 +24,12 @@ def render():
     store = get_store()
     connector = get_connector()
 
-    if "sync_jobs" not in st.session_state:
-        st.session_state.sync_jobs = []
-    if "sync_in_progress" not in st.session_state:
-        st.session_state.sync_in_progress = False
+    if "batch_in_progress" not in st.session_state:
+        st.session_state.batch_in_progress = False
+    if "batch_job_id" not in st.session_state:
+        st.session_state.batch_job_id = None
+    if "batch_start_time" not in st.session_state:
+        st.session_state.batch_start_time = None
 
     st.subheader("同步狀態")
 
@@ -115,7 +117,7 @@ def render():
                         st.error(f"❌ 清除失敗: {e}")
 
     with col_sync_all:
-        sync_disabled = st.session_state.sync_in_progress
+        sync_disabled = st.session_state.batch_in_progress
         help_text = "同步正在進行中，請等待完成" if sync_disabled else None
         if st.button(
             "🔄 一键同步所有联赛数据",
@@ -133,46 +135,59 @@ def render():
                 result = connector.sync_all_seasons()
                 job_id = result.get('job_id', 'unknown')
                 st.success(f"✅ 批量同步任務已啟動 — job_id={job_id}")
-                st.info("💡 一個後台任務依次處理所有聯賽，crawler 自帶 _random_delay(1-3s) 控制節奏。可以切換頁面，回來查看進度。")
 
                 st.session_state.batch_job_id = job_id
                 st.session_state.batch_in_progress = True
+                st.session_state.batch_start_time = time.time()
                 st.rerun()
             except Exception as e:
                 st.error(f"同步流程失敗: {e}")
 
-    if st.session_state.get("batch_in_progress") and st.session_state.get("batch_job_id"):
+    # ============ 批量同步進度 ============
+    if st.session_state.batch_in_progress and st.session_state.batch_job_id:
         st.divider()
-        st.subheader("📊 同步進度")
+        st.subheader("📊 批量同步進度")
 
         try:
             job = connector.get_crawl_job(st.session_state.batch_job_id)
-            if job:
+            if not job:
+                st.warning("無法查詢同步任務狀態")
+                if st.button("🔄 重新檢查"):
+                    st.rerun()
+            else:
                 status = job.get('status', 'unknown')
-                total = job.get('total_matches', 0)
-                completed = job.get('completed_matches', 0)
+                leagues_done = job.get('total_matches', 0)
+                leagues_total = 979
                 failed = job.get('failed_matches', 0)
 
-                c1, c2, c3 = st.columns(3)
-                with c1:
+                pct = min(leagues_done / leagues_total, 1.0) if leagues_total > 0 else 0
+                st.progress(pct, text=f"已處理 {leagues_done}/{leagues_total} 個聯賽")
+
+                col_a, col_b = st.columns(2)
+                with col_a:
                     st.metric("狀態", status)
-                with c2:
-                    st.metric("已處理場次", completed)
-                with c3:
+                with col_b:
                     st.metric("失敗", failed)
 
                 if status == "completed":
-                    st.success(f"🎉 批量同步完成！共 {total} 場比賽，失敗 {failed}")
+                    st.success(f"🎉 批量同步完成！處理 {leagues_done} 個聯賽，失敗 {failed}")
                     st.session_state.batch_in_progress = False
+                    st.session_state.batch_job_id = None
                 elif status == "failed":
                     st.error(f"❌ 批量同步失敗: {job.get('error_message', '未知錯誤')}")
                     st.session_state.batch_in_progress = False
+                    st.session_state.batch_job_id = None
                 else:
-                    st.info("⏳ 同步進行中（每 10 秒自動刷新）...")
-                    time.sleep(10)
+                    elapsed = time.time() - (st.session_state.batch_start_time or time.time())
+                    rate = leagues_done / elapsed if elapsed > 0 else 0
+                    eta = (leagues_total - leagues_done) / rate if rate > 0 else 0
+                    st.caption(f"已用 {elapsed:.0f}s | 速率 {rate:.1f} 聯賽/秒 | 預計剩餘 {eta:.0f}s")
+                    time.sleep(5)
                     st.rerun()
         except Exception as e:
-            st.warning(f"獲取進度失敗: {e}")
+            st.warning(f"獲取進度失敗: {e}，5 秒後重試")
+            time.sleep(5)
+            st.rerun()
 
     st.divider()
 
