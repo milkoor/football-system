@@ -27,31 +27,26 @@ logger = logging.getLogger(__name__)
 
 def _resolve_follow_list(follow_manager, connector):
     """解析关注列表，将过期的数据库ID替换为当前ID"""
-    import re as _re
     items = follow_manager.get_all()
-    leagues = None
 
     for item in items:
         lid = item.get("league_id")
-        # 验证 ID 是否存在
+        # 验证 ID 是否存在（查联赛详情，非查比赛）
         try:
-            test = connector.get_matches(league_id=lid, page=1, page_size=1)
-            if "total" in test or "matches" in test:
+            leagues_all = connector.get_leagues(enabled=True)
+            valid = any(lg.get('id') == lid for lg in leagues_all)
+            if valid:
                 continue  # ID 有效
         except:
             pass
 
         # ID 失效，按名称重新查找
         name = item.get("league_name", "")
-        # 从名称中提取联赛名（去掉国家前缀）
         parts = name.split(" - ", 1)
         search_name = parts[-1] if len(parts) > 1 else name
 
-        if leagues is None:
-            leagues = connector.get_leagues(enabled=True)
-
         found = None
-        for lg in leagues:
+        for lg in leagues_all:
             lg_name = lg.get('league_name_tw', '') or lg.get('league_name_zh', '')
             if search_name in lg_name or lg_name in search_name:
                 found = lg
