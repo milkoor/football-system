@@ -1,11 +1,31 @@
 """自动同步模块"""
 import logging
 import atexit
+import json
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "auto_sync_config.json")
+
+
+def _load_config() -> dict:
+    """从文件加载运行时配置"""
+    try:
+        with open(_CONFIG_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_config(config: dict):
+    """保存运行时配置到文件"""
+    os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
+    with open(_CONFIG_PATH, "w") as f:
+        json.dump(config, f)
 
 
 class SyncScheduler:
@@ -17,37 +37,46 @@ class SyncScheduler:
         self.settings = settings
         self.scheduler: Optional[BackgroundScheduler] = None
 
-        # 创建并启动调度器
-        self.scheduler = self._create_scheduler()
+        # 从运行时配置覆盖 env 设置
+        runtime = _load_config()
+        self._interval = runtime.get("interval_hours", settings.sync_interval_hours)
+        self._enabled = runtime.get("enabled", settings.sync_enabled)
 
+        self.scheduler = self._create_scheduler()
         if self.scheduler:
-            logger.info("自动同步调度器初始化成功")
-            # 注册关闭钩子
+            logger.info(f"自动同步调度器已启动 (间隔={self._interval}h)")
             atexit.register(self._shutdown_scheduler)
         else:
             logger.info("自动同步功能已禁用")
 
     def _create_scheduler(self) -> Optional[BackgroundScheduler]:
-        """创建调度器"""
-        if not self.settings.sync_enabled:
+        if not self._enabled:
             return None
-
         scheduler = BackgroundScheduler()
-        trigger = IntervalTrigger(hours=self.settings.sync_interval_hours)
-        scheduler.add_job(
-            self.run_sync_job,
-            trigger=trigger,
-            id="auto_sync_job",
-            name="自动同步任务"
-        )
+        trigger = IntervalTrigger(hours=self._interval)
+        scheduler.add_job(self.run_sync_job, trigger=trigger, id="auto_sync_job", name="自动同步任务")
         scheduler.start()
         return scheduler
 
+    def reschedule(self, interval_hours: int, enabled: bool):
+        """运行时修改同步间隔和启停状态"""
+        self._interval = interval_hours
+        self._enabled = enabled
+
+        # 持久化到文件
+        _save_config({"interval_hours": interval_hours, "enabled": enabled})
+
+        # 重启调度器
+        self._shutdown_scheduler()
+        self.scheduler = self._create_scheduler()
+        status = "已启动" if self.scheduler else "已停用"
+        logger.info(f"自动同步调度器已重新配置: {status}, 间隔={interval_hours}h")
+
     def _shutdown_scheduler(self):
-        """关闭调度器"""
         if self.scheduler:
             logger.info("正在关闭自动同步调度器")
             self.scheduler.shutdown(wait=True)
+            self.scheduler = None
             logger.info("自动同步调度器已关闭")
 
     def run_sync_job(self):

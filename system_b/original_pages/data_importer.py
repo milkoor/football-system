@@ -337,27 +337,33 @@ def render():
 
         col_a, col_b, col_c = st.columns([1, 1, 1])
         with col_a:
-            st.metric("状态", "🟢 运行中" if is_running else "🔴 已停用")
+            enable = st.checkbox("启用自动同步", value=is_running, key="chk_auto_enable")
         with col_b:
-            from config.settings import get_settings
-            interval = get_settings().sync_interval_hours
-            st.metric("同步间隔", f"{interval} 小时")
+            hours = st.number_input("同步间隔（小时）", min_value=1, max_value=168,
+                                     value=st.session_state.get("auto_interval", 24),
+                                     key="num_auto_interval")
         with col_c:
-            if st.button("🔄 立即执行", type="secondary", key="btn_trigger_auto_sync"):
+            if st.button("💾 应用设置", type="primary", key="btn_apply_auto"):
                 try:
-                    from modules.auto_sync import SyncScheduler
-                    from config.settings import get_settings
-                    SyncScheduler(
-                        connector=connector,
-                        follow_manager=get_follow_manager(),
-                        settings=get_settings()
-                    ).run_sync_job()
-                    st.success("✅ 自动同步任务已执行完成")
+                    sched.reschedule(interval_hours=int(hours), enabled=enable)
+                    st.session_state.auto_interval = int(hours)
+                    st.success(f"✅ 已{'启用' if enable else '停用'}自动同步，间隔 {int(hours)} 小时")
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"❌ 执行自动同步失败: {e}")
+                    st.error(f"❌ 设置失败: {e}")
 
-        if not is_running:
-            st.caption("自动同步未启用。设置 SYNC_ENABLED=true 环境变量并重启容器以启用。")
+        if is_running:
+            st.caption(f"🟢 运行中 — 每 {sched._interval}h 执行一次（从文件读取配置可覆盖env）")
+        else:
+            st.caption("🔴 已停用 — 勾选上方复选框并点击应用设置以启用")
+
+        if st.button("🔄 立即执行一次", type="secondary", key="btn_trigger_auto_sync"):
+            try:
+                from config.settings import get_settings
+                sched.run_sync_job()
+                st.success("✅ 自动同步任务已执行完成")
+            except Exception as e:
+                st.error(f"❌ 执行失败: {e}")
 
     # ============ 运行ETL ============
     st.divider()
