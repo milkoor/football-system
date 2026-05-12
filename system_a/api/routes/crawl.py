@@ -91,11 +91,12 @@ def run_crawl_task(job_id: int, db: Session):
                 logger.error(f"解析 match_ids 失败: {job.match_ids}")
                 match_ids = []
         elif job.league_id:
-            # 否则从数据库获取该联赛的比赛，过滤已完成的
+            # 否则从数据库获取该联赛的比赛
             from config.models import Match
-            matches = db.query(Match).filter(
-                Match.league_id == job.league_id,
-            ).all()
+            q = db.query(Match).filter(Match.league_id == job.league_id)
+            if job.season_label:
+                q = q.filter(Match.season == job.season_label)
+            matches = q.all()
 
             # 将所有比赛传给爬虫（爬虫内部会跳过已完成比赛并更新状态）
             for match in matches:
@@ -233,9 +234,10 @@ async def start_crawl(
     elif league_id:
         # 否则获取该联赛的比赛数量
         from config.models import Match
-        match_count = db.query(Match).filter(
-            Match.league_id == league_id,
-        ).count()
+        q = db.query(Match).filter(Match.league_id == league_id)
+        if season_label:
+            q = q.filter(Match.season == season_label)
+        match_count = q.count()
         job.total_matches = match_count
 
     db.commit()
