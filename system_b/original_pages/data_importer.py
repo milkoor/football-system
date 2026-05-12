@@ -25,6 +25,53 @@ from utils.system_a_mapper import sync_league_to_system_b, sync_season_to_system
 logger = logging.getLogger(__name__)
 
 
+def _resolve_follow_list(follow_manager, connector):
+    """解析关注列表，将过期的数据库ID替换为当前ID"""
+    import re as _re
+    items = follow_manager.get_all()
+    leagues = None
+
+    for item in items:
+        lid = item.get("league_id")
+        # 验证 ID 是否存在
+        try:
+            test = connector.get_matches(league_id=lid, page=1, page_size=1)
+            if "total" in test or "matches" in test:
+                continue  # ID 有效
+        except:
+            pass
+
+        # ID 失效，按名称重新查找
+        name = item.get("league_name", "")
+        # 从名称中提取联赛名（去掉国家前缀）
+        parts = name.split(" - ", 1)
+        search_name = parts[-1] if len(parts) > 1 else name
+
+        if leagues is None:
+            leagues = connector.get_leagues(enabled=True)
+
+        found = None
+        for lg in leagues:
+            lg_name = lg.get('league_name_tw', '') or lg.get('league_name_zh', '')
+            if search_name in lg_name or lg_name in search_name:
+                found = lg
+                break
+
+        if found:
+            old_id = item["league_id"]
+            item["league_id"] = found["id"]
+            follow_manager.remove(old_id, item.get("season_label"))
+            follow_manager.add(
+                league_id=found["id"],
+                league_name=name,
+                season_label=item.get("season_label", ""),
+                country=item.get("country", ""),
+            )
+            logger.warning(f"已修复过期的关注联赛ID: {old_id} -> {found['id']} ({found.get('league_name_tw', '')})")
+
+    return follow_manager.get_all()
+
+
 @st.cache_data(ttl=300)  # 缓存5分钟
 def fetch_leagues(_connector):
     """获取联赛列表，带缓存"""
@@ -56,6 +103,9 @@ def render():
     connector = get_connector()
     x_calculator = XValueCalculator(connector)
     follow_manager = get_follow_manager()
+
+    # 解析关注列表，修复过期的数据库ID（数据库重建后自增ID会变）
+    _resolve_follow_list(follow_manager, connector)
 
     # ============ 关注管理 ============
     st.divider()
