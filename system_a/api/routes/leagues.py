@@ -19,6 +19,10 @@ router = APIRouter()
 # 全局爬虫并发限流 — 最多 6 个同步任务同时爬 titan007（实测 3 太保守）
 _sync_semaphore = threading.Semaphore(6)
 
+# infoHeaderFn.js 缓存 — 一次性加载所有联赛的赛季列表，避免逐个探测
+_all_seasons_cache: dict[int, list[str]] | None = None
+_all_seasons_cache_lock = threading.Lock()
+
 
 # ============ Pydantic 模型 ============
 
@@ -300,7 +304,18 @@ async def sync_seasons_for_league(
                     db.commit()
 
                 crawler = LeagueCrawler()
-                season_labels = crawler.get_available_seasons(league.league_id)
+
+                # 从 infoHeaderFn.js 批量获取赛季列表（一次 HTTP 请求，缓存复用）
+                global _all_seasons_cache
+                if _all_seasons_cache is None:
+                    with _all_seasons_cache_lock:
+                        if _all_seasons_cache is None:  # double-check
+                            _all_seasons_cache = crawler.fetch_all_seasons()
+
+                season_labels = (_all_seasons_cache or {}).get(league.league_id)
+                if not season_labels:
+                    logger.info(f"联赛 {league_id} 在 infoHeaderFn.js 中无赛季数据，回退到逐探测")
+                    season_labels = crawler.get_available_seasons(league.league_id)
 
                 total_matches = 0
                 completed_matches = 0

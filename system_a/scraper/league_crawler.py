@@ -449,3 +449,35 @@ class LeagueCrawler:
         matches = self.get_season_schedules(league_id, season)
         logger.info(f"联赛 {league_id} {season} 赛季获取到 {len(matches)} 场比赛")
         return len(matches)
+
+    def fetch_all_seasons(self) -> Dict[int, List[str]]:
+        """从 titan007 一次性抓取所有联赛的可用赛季列表
+
+        解析 infoHeaderFn.js 文件，该文件包含所有联赛的所有可用赛季。
+        避免逐个联赛调用 get_available_seasons（需要 5-8 HTTP 请求/联赛）。
+
+        Returns:
+            {league_titan_id: [season_label1, season_label2, ...]}
+        """
+        import re as _re
+
+        url = "https://zq.titan007.com/jsData/infoHeaderFn.js"
+        html = self._get_html(url)
+        if not html:
+            logger.error("无法获取 infoHeaderFn.js，回退到逐个联赛探测")
+            return {}
+
+        result: Dict[int, List[str]] = {}
+        # 格式: arr[N] = ["InfoID_N","地区名","图片","标志",["联赛ID,联赛名,flag1,flag2,赛季1,赛季2,...", ...]];
+        for m in _re.finditer(r'\"(\d+),([^,\"]+),(\d+),(\d+),(.*?)\"', html):
+            try:
+                lid = int(m.group(1))
+                seasons_str = m.group(5)
+                seasons = [s.strip() for s in seasons_str.split(",") if s.strip()]
+                if seasons:
+                    result[lid] = seasons
+            except (ValueError, IndexError):
+                continue
+
+        logger.info(f"fetch_all_seasons: 共获取 {len(result)} 个联赛的赛季信息")
+        return result
