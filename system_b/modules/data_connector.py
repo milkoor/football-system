@@ -159,13 +159,11 @@ class DataConnector:
         return result
 
     def sync_seasons_for_league(self, league_id: int, season_label: Optional[str] = None) -> Dict:
-        """同步指定联赛的赛季赛程
-
-        Args:
-            league_id: 联赛ID
-            season_label: (可选) 赛季标签，此参数被忽略，系统A会自动同步所有可用赛季
-        """
-        result = self._request("POST", f"/api/leagues/{league_id}/sync-seasons")
+        """同步指定联赛的赛季赛程"""
+        params = {}
+        if season_label:
+            params["season_label"] = season_label
+        result = self._request("POST", f"/api/leagues/{league_id}/sync-seasons", params=params)
         return result
 
     def sync_all_seasons(self) -> Dict:

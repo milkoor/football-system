@@ -256,9 +256,13 @@ async def sync_leagues_from_site(
 async def sync_seasons_for_league(
     league_id: int,
     background_tasks: BackgroundTasks,
+    season_label: Optional[str] = Query(None, description="指定赛季标签，为空则同步所有可用赛季"),
     db: Session = Depends(get_db),
 ):
-    """同步指定联赛的赛季赛程"""
+    """同步指定联赛的赛季赛程
+
+    如果指定 season_label 则只同步该赛季，否则同步所有可用赛季。
+    """
     import uuid
     from scraper.league_crawler import LeagueCrawler
     from config.models import Match, Season, CrawlJob
@@ -281,6 +285,9 @@ async def sync_seasons_for_league(
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    # 指定赛季标签，为空则同步所有
+    target_season = season_label
 
     def do_sync_schedule(job_id: int):
         import random as _random
@@ -316,6 +323,12 @@ async def sync_seasons_for_league(
                 if not season_labels:
                     logger.info(f"联赛 {league_id} 在 infoHeaderFn.js 中无赛季数据，回退到逐探测")
                     season_labels = crawler.get_available_seasons(league.league_id)
+
+                # 如果指定了目标赛季，只同步该赛季
+                if target_season and target_season in season_labels:
+                    season_labels = [target_season]
+                elif target_season:
+                    logger.info(f"目标赛季 {target_season} 不在可用列表 {season_labels[:5]}... 中，回退到全部同步")
 
                 total_matches = 0
                 completed_matches = 0
