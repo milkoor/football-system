@@ -504,30 +504,6 @@ def render():
             except Exception as e:
                 st.error(f"❌ 执行失败: {e}")
 
-    # ============ 运行ETL ============
-    st.divider()
-    st.subheader("运行ETL")
-
-    if following:
-        if st.button("🎯 运行ETL", type="primary"):
-            st.divider()
-            st.subheader("ETL 执行")
-            with st.spinner("正在执行ETL..."):
-                try:
-                    from core.pipeline import ETLPipeline
-                    pipeline = ETLPipeline(store)
-                    run_id = pipeline.execute(league_ids=None)  # 所有联赛
-                    st.success(f"✅ ETL 执行完成！Run ID: {run_id}")
-                    st.info("请前往「报表看板」页面查看结果")
-
-                except Exception as e:
-                    st.error(f"❌ ETL 执行失败: {str(e)}")
-                    import traceback
-                    st.error(traceback.format_exc())
-
-    else:
-        st.warning("请先添加关注的联赛赛季")
-
 
 if __name__ == "__main__":
     render()

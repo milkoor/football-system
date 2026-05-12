@@ -188,12 +188,22 @@ def render():
 
                 from modules.data_connector import get_connector
                 conn = get_connector()
+                # 建立 System B league_id → System A league_id 映射
+                sa_id_map = {}
+                for al in conn.get_leagues(enabled=True):
+                    sa_id_map[al['id']] = al
+
                 for lg, curr_si, _, _, _ in ready_leagues:
+                    # 从 league.code (如 LEAGUE_7996) 提取 System A ID
+                    sa_id = int(lg.code.replace("LEAGUE_", ""))
+                    sa_league = sa_id_map.get(sa_id)
+                    if not sa_league:
+                        continue
                     for gg in global_groups:
                         existing = store.get_league_group_teams(lg.id, gg.id, "current")
                         if not existing:
                             try:
-                                mr = conn.get_matches(league_id=lg.id, page=1, page_size=200)
+                                mr = conn.get_matches(league_id=sa_id, page=1, page_size=200)
                                 all_matches = mr.get('matches') or mr.get('data') or []
                                 all_teams = set()
                                 for m in all_matches:
