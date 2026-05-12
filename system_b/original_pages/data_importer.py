@@ -377,7 +377,7 @@ def render():
                 try:
                     from core.pipeline import ETLPipeline
                     pipeline = ETLPipeline(store)
-                    run_id = pipeline.run_etl(data_source='postgresql')
+                    run_id = pipeline.execute(league_ids=None)  # 所有联赛
                     st.success(f"✅ ETL 执行完成！Run ID: {run_id}")
                     st.info("请前往「报表看板」页面查看结果")
 
