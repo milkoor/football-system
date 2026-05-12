@@ -50,27 +50,27 @@ if 'initialized' not in st.session_state:
     logger.info("应用程序初始化完成")
 
 # 定义所有页面（使用包装文件）
-page_home = st.Page("views/home.py", title="首页", icon="🏠")
+page_home = st.Page("views/home.py", title="首页", icon="🏠", default=True)
 
 # 数据准备分组
-page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄")
+page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄", url_path="system_sync")
 page_data_import = st.Page("views/data_importer.py", title="数据导入", icon="📥", url_path="data_importer")
-page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆")
-page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥")
-page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄")
+page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆", url_path="league_management")
+page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥", url_path="team_grouping")
+page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄", url_path="file_upload")
 
 # 数据分析分组
-page_params = st.Page("views/settings.py", title="参数设定", icon="⚙️")
-page_etl = st.Page("views/etl_exec.py", title="ETL执行", icon="▶️")
+page_params = st.Page("views/settings.py", title="参数设定", icon="⚙️", url_path="settings")
+page_etl = st.Page("views/etl_exec.py", title="ETL执行", icon="▶️", url_path="etl_exec")
 
 # 结果输出分组
-page_report = st.Page("views/dashboard.py", title="报表看板", icon="📊")
-page_history = st.Page("views/history.py", title="历史纪录", icon="📜")
+page_report = st.Page("views/dashboard.py", title="报表看板", icon="📊", url_path="dashboard")
+page_history = st.Page("views/history.py", title="历史纪录", icon="📜", url_path="history")
 
 # 运维分组
-page_tasks = st.Page("views/task_list.py", title="任务列表", icon="📋")
-page_validation = st.Page("views/data_validation.py", title="数据验证", icon="✅")
-page_db_mgmt = st.Page("views/database_management.py", title="数据库管理", icon="🗄️")
+page_tasks = st.Page("views/task_list.py", title="任务列表", icon="📋", url_path="task_list")
+page_validation = st.Page("views/data_validation.py", title="数据验证", icon="✅", url_path="data_validation")
+page_db_mgmt = st.Page("views/database_management.py", title="数据库管理", icon="🗄️", url_path="database_management")
 
 # 定义分组导航 - 移除信号追踪页面和文件下载页面（功能已整合到数据导入）
 pg = st.navigation({
