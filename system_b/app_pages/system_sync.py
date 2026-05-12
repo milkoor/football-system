@@ -11,7 +11,6 @@ import streamlit as st
 import time
 import logging
 
-from core.config_store import get_store
 from modules.data_connector import get_connector
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,6 @@ def render():
     st.title("🔄 系統同步")
     st.caption("呼叫系統A從網站抓取聯賽和賽季賽程")
 
-    store = get_store()
     connector = get_connector()
 
     if "batch_in_progress" not in st.session_state:
@@ -156,21 +154,20 @@ def render():
                     st.rerun()
             else:
                 status = job.get('status', 'unknown')
-                leagues_done = job.get('total_matches', 0)
-                leagues_total = 979
+                seasons_done = job.get('total_matches', 0)
+                match_count = job.get('completed_matches', 0)
                 failed = job.get('failed_matches', 0)
 
-                pct = min(leagues_done / leagues_total, 1.0) if leagues_total > 0 else 0
-                st.progress(pct, text=f"已處理 {leagues_done}/{leagues_total} 個聯賽")
-
-                col_a, col_b = st.columns(2)
+                col_a, col_b, col_c = st.columns(3)
                 with col_a:
                     st.metric("狀態", status)
                 with col_b:
+                    st.metric("已抓取比賽", match_count)
+                with col_c:
                     st.metric("失敗", failed)
 
                 if status == "completed":
-                    st.success(f"🎉 批量同步完成！處理 {leagues_done} 個聯賽，失敗 {failed}")
+                    st.success(f"🎉 批量同步完成！抓取 {match_count} 場比賽，失敗 {failed}")
                     st.session_state.batch_in_progress = False
                     st.session_state.batch_job_id = None
                 elif status == "failed":
@@ -179,9 +176,7 @@ def render():
                     st.session_state.batch_job_id = None
                 else:
                     elapsed = time.time() - (st.session_state.batch_start_time or time.time())
-                    rate = leagues_done / elapsed if elapsed > 0 else 0
-                    eta = (leagues_total - leagues_done) / rate if rate > 0 else 0
-                    st.caption(f"已用 {elapsed:.0f}s | 速率 {rate:.1f} 聯賽/秒 | 預計剩餘 {eta:.0f}s")
+                    st.info(f"⏳ 同步進行中… 已用 {elapsed:.0f}s，已抓取 {match_count} 場比賽")
                     time.sleep(5)
                     st.rerun()
         except Exception as e:

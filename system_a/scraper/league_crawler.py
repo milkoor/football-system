@@ -213,6 +213,56 @@ class LeagueCrawler:
 
         return matches
 
+    def batch_fetch_seasons(self, tasks: List[tuple[int, str]]) -> Dict[str, List[Dict]]:
+        """批量抓取多个联赛赛季的比赛数据（并发、无 random_delay）
+
+        Args:
+            tasks: [(league_id, season), ...]
+
+        Returns:
+            {"{league_id}_{season}": [match_dict, ...]}
+        """
+        import concurrent.futures as _cf
+        import re as _re
+        import requests as _req
+
+        result: Dict[str, List[Dict]] = {}
+        session = _req.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://zq.titan007.com/",
+        })
+
+        def _fetch_one(lid: int, season: str) -> tuple[str, str | None]:
+            key = f"{lid}_{season}"
+            url = f"{self.INFO_URL}/jsData/matchResult/{season}/s{lid}.js"
+            try:
+                resp = session.get(url, timeout=30)
+                if resp.status_code == 200 and "对不起！你查看的页面不存在" not in resp.text:
+                    return key, resp.text
+                # 尝试无赛季 URL
+                url2 = f"{self.INFO_URL}/jsData/matchResult/s{lid}.js"
+                resp2 = session.get(url2, timeout=30)
+                if resp2.status_code == 200 and "对不起！你查看的页面不存在" not in resp2.text:
+                    return key, resp2.text
+            except Exception:
+                pass
+            return key, None
+
+        with _cf.ThreadPoolExecutor(max_workers=10) as pool:
+            fut_map = {pool.submit(_fetch_one, lid, season): (lid, season) for lid, season in tasks}
+            for fut in _cf.as_completed(fut_map):
+                key, html = fut.result()
+                if html:
+                    lid, season = fut_map[fut]
+                    parsed = self._parse_schedule_js(html, lid, season)
+                    if parsed:
+                        result[key] = parsed
+
+        session.close()
+        logger.info(f"batch_fetch_seasons: 请求 {len(tasks)} 个赛季, 成功 {len(result)}")
+        return result
+
     def _parse_schedule_js(
         self,
         html: str,

@@ -426,7 +426,7 @@ async def batch_sync_seasons(
         import logging as _logging
         _log = _logging.getLogger(__name__)
 
-        # 第一步：获取所有联赛的赛季列表（一次 HTTP 请求）
+        # 获取所有联赛的赛季列表（一次 HTTP 请求）
         crawler = LeagueCrawler()
         all_seasons = crawler.fetch_all_seasons()
         if not all_seasons:
@@ -443,50 +443,56 @@ async def batch_sync_seasons(
                 job.started_at = datetime.utcnow()
                 db.commit()
 
-            # 获取所有启用的联赛（使用 DB id，不是 titan007 id）
             leagues = db.query(LeagueIndex).filter(LeagueIndex.enabled == True).all()
 
-            total = len(leagues)
-            processed = 0
-            total_matches = 0
-            failed_leagues = 0
-
-            _log.info(f"batch_sync: 开始同步 {total} 个联赛")
-
+            # 收集所有需要抓取的 (titan_id, season) 任务
+            all_tasks: list[tuple[int, str, int]] = []  # (titan_id, season, db_league_id)
             for league in leagues:
                 titan_id = league.league_id
                 season_labels = all_seasons.get(titan_id, [])
                 if not season_labels:
-                    processed += 1
                     continue
-
-                # 只同步最近 2 个赛季
-                recent_seasons = [s for s in season_labels if s in (
+                recent = [s for s in season_labels if s in (
                     f"{datetime.now().year-1}-{datetime.now().year}",
                     f"{datetime.now().year-2}-{datetime.now().year-1}",
                     str(datetime.now().year),
                     str(datetime.now().year-1),
                 )]
-                if not recent_seasons:
-                    # 取最后 2 个
-                    recent_seasons = season_labels[:2]
+                if not recent:
+                    recent = season_labels[:2]
+                for s in recent:
+                    all_tasks.append((titan_id, s, league.id))
 
-                league_ok = True
-                for season in recent_seasons:
+            total_tasks = len(all_tasks)
+            _log.info(f"batch_sync: 共 {total_tasks} 个赛季待抓取")
+
+            # 分批并发抓取（每批 50 个赛季，10 并发）
+            batch_size = 50
+            done = 0
+            total_matches = 0
+            failed = 0
+
+            for batch_start in range(0, total_tasks, batch_size):
+                batch = all_tasks[batch_start:batch_start + batch_size]
+                fetch_tasks = [(tid, season) for tid, season, _ in batch]
+
+                raw_data = crawler.batch_fetch_seasons(fetch_tasks)
+
+                # 解析并入库
+                for idx, (tid, season, db_lid) in enumerate(batch):
+                    key = f"{tid}_{season}"
+                    matches = raw_data.get(key, [])
+                    if not matches:
+                        continue
+
                     try:
-                        matches = crawler.get_season_schedules(
-                            league_id=titan_id, season=season
-                        )
-                        if not matches:
-                            continue
-
-                        existing_season = db.query(Season).filter(
-                            Season.league_id == league.id,
+                        es = db.query(Season).filter(
+                            Season.league_id == db_lid,
                             Season.season_label == season
                         ).first()
-                        if not existing_season:
+                        if not es:
                             db.add(Season(
-                                league_id=league.id, season_label=season, status="active"
+                                league_id=db_lid, season_label=season, status="active"
                             ))
                             db.commit()
 
@@ -497,7 +503,7 @@ async def batch_sync_seasons(
                             exist = db.query(Match).filter(Match.match_id == mid).first()
                             if not exist:
                                 db.add(Match(
-                                    match_id=mid, league_id=league.id,
+                                    match_id=mid, league_id=db_lid,
                                     league_name=md.get("league_name", ""),
                                     season=md.get("season", season),
                                     round_name=md.get("round_name", ""),
@@ -510,9 +516,9 @@ async def batch_sync_seasons(
                             else:
                                 is_done = exist.score_ft and exist.score_ft.strip()
                                 if is_done:
-                                    new_s = md.get("score_ft", "")
-                                    if new_s != exist.score_ft:
-                                        exist.score_ft = new_s
+                                    ns = md.get("score_ft", "")
+                                    if ns != exist.score_ft:
+                                        exist.score_ft = ns
                                 else:
                                     exist.round_name = md.get("round_name", "")
                                     exist.home_team = md.get("home_team", "")
@@ -521,35 +527,28 @@ async def batch_sync_seasons(
 
                         db.commit()
                         total_matches += len(matches)
-                        _log.info(f"batch_sync: 联赛 {titan_id}({league.league_name_tw}) {season} 同步了 {len(matches)} 场比赛")
                     except Exception as e:
-                        _log.error(f"batch_sync: 联赛 {titan_id} 赛季 {season} 同步失败: {e}")
-                        league_ok = False
+                        _log.error(f"保存联赛 {tid} {season} 失败: {e}")
+                        failed += 1
 
-                processed += 1
-                if not league_ok:
-                    failed_leagues += 1
+                done += len(batch)
+                j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                if j:
+                    j.total_matches = done
+                    j.completed_matches = total_matches
+                    j.failed_matches = failed
+                    db.commit()
+                _log.info(f"batch_sync: {done}/{total_tasks} 赛季, {total_matches} 场比赛")
 
-                if processed % 5 == 0:
-                    j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
-                    if j:
-                        j.total_matches = processed
-                        j.completed_matches = total_matches
-                        j.failed_matches = failed_leagues
-                        db.commit()
-                        _log.info(f"batch_sync: {processed}/{total} 联赛, {total_matches} 场比赛")
-
-            # 完成
             j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
             if j:
                 j.status = "completed"
                 j.completed_at = datetime.utcnow()
-                j.total_matches = processed
+                j.total_matches = done
                 j.completed_matches = total_matches
-                j.failed_matches = failed_leagues
+                j.failed_matches = failed
                 db.commit()
-
-            _log.info(f"batch_sync: 完成！处理 {processed}/{total} 联赛, {total_matches} 场比赛, {failed_leagues} 个失败")
+            _log.info(f"batch_sync: 完成！{total_matches} 场比赛, 失败 {failed}")
 
         except Exception as e:
             _log.error(f"batch_sync: 整体失败: {e}")
