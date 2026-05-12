@@ -177,11 +177,17 @@ def render():
         with col1:
             st.metric("关注赛季数量", len(following))
         with col2:
-            total_matches = sum(connector.get_matches(league_id=item['league_id'], page=1, page_size=1).get('total', 0) for item in following)
+            try:
+                total_matches = sum(connector.get_matches(league_id=item['league_id'], page=1, page_size=1).get('total', 0) for item in following)
+            except:
+                total_matches = "?"
             st.metric("比赛总数", total_matches)
         with col3:
-            completed = sum(connector.get_matches(league_id=item['league_id'], crawl_status='completed', page=1, page_size=1).get('total', 0) for item in following)
-            st.metric("已爬取", completed, delta=total_matches - completed, delta_color="inverse")
+            try:
+                completed = sum(connector.get_matches(league_id=item['league_id'], crawl_status='completed', page=1, page_size=1).get('total', 0) for item in following)
+            except:
+                completed = "?"
+            st.metric("已爬取", completed, delta=f"{total_matches - completed} 待爬取" if isinstance(total_matches, int) and isinstance(completed, int) else None)
 
         step = st.session_state.sync_step
 

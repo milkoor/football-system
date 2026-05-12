@@ -45,7 +45,11 @@ def render():
     with col1:
         st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
     with col2:
-        st.metric("聯賽數", len(connector.get_leagues(enabled=True)) if connector else 0)
+        try:
+            leagues = connector.get_leagues(enabled=True)
+            st.metric("聯賽數", len(leagues))
+        except:
+            st.metric("聯賽數", "?")
     with col3:
         st.metric("賽季總數", total_seasons)
     with col4:
