@@ -59,7 +59,7 @@ def render():
     col_clear, col_sync_all = st.columns(2)
 
     with col_clear:
-        if st.button("🧹 清除所有同步資料", type="secondary"):
+        if st.button("🧹 清除所有同步資料", type="secondary", key="btn_clear_sync"):
             if st.warning("這會清除本地同步的所有資料，確定繼續嗎?", icon="⚠️"):
                 with st.spinner("正在清除所有同步資料..."):
                     try:
@@ -76,6 +76,7 @@ def render():
         if st.button(
             "🔄 一键同步所有联赛数据",
             type="primary",
+            key="btn_sync_all",
             disabled=sync_disabled,
             help=help_text
         ):
@@ -106,7 +107,7 @@ def render():
             job = connector.get_crawl_job(st.session_state.batch_job_id)
             if not job:
                 st.warning("無法查詢同步任務狀態")
-                if st.button("🔄 重新檢查"):
+                if st.button("🔄 重新檢查", key="btn_retry_check"):
                     st.rerun()
             else:
                 status = job.get('status', 'unknown')
