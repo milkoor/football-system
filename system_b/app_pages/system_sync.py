@@ -130,7 +130,7 @@ def render():
                 st.success("✅ 联赛列表同步完成")
 
                 st.write("步驟 2/3: 啟動批量同步...")
-                result = connector.sync_sync_all_seasons()
+                result = connector.sync_all_seasons()
                 job_id = result.get('job_id', 'unknown')
                 st.success(f"✅ 批量同步任務已啟動 — job_id={job_id}")
                 st.info("💡 一個後台任務依次處理所有聯賽，crawler 自帶 _random_delay(1-3s) 控制節奏。可以切換頁面，回來查看進度。")
