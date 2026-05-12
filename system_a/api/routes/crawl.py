@@ -98,10 +98,16 @@ def run_crawl_task(job_id: int, db: Session):
                 q = q.filter(Match.season == job.season_label)
             matches = q.all()
 
-            # 将所有比赛传给爬虫（爬虫内部会跳过已完成比赛并更新状态）
+            # 过滤：已有比分(已完成)的比赛直接标记完成，不爬取
             for match in matches:
-                match_ids.append(match.match_id)
-            logger.info(f"准备处理 {len(match_ids)} 场比赛")
+                if match.score_ft and match.score_ft.strip():
+                    match.crawl_status = "completed"
+                    skipped_completed += 1
+                else:
+                    match_ids.append(match.match_id)
+            if skipped_completed:
+                db.commit()
+                logger.info(f"已跳过 {skipped_completed} 场已完成比赛(已有比分)")
 
         logger.info(f"准备爬取 {len(match_ids)} 场比赛")
 

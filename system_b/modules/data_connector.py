@@ -210,17 +210,15 @@ class DataConnector:
         return result
 
     def calculate_x_values(self, league_id: int, season_label: str) -> Dict:
-        """批量计算指定联赛赛季的X值（本地计算）"""
-        # 获取该联赛赛季的所有比赛
+        """批量计算指定联赛赛季的X值（本地计算，跳过已有比分的已完成比赛）"""
         matches_result = self.get_matches(
             league_id=league_id,
             season=season_label,
             page=1,
-            page_size=200  # 足够大的数量，确保获取所有比赛
+            page_size=200
         )
 
         matches = []
-        # 处理可能的分页结构 - 系统A返回 {total: X, matches: [...]}
         if isinstance(matches_result, dict):
             if "matches" in matches_result:
                 matches = matches_result["matches"]
@@ -233,17 +231,20 @@ class DataConnector:
 
         completed = 0
         failed = 0
+        skipped = 0
 
         calculator = XValueCalculator(data_connector=self)
 
         for match in matches:
             match_id = match["match_id"]
+            # 已有比分的已完成比赛，跳过X值计算
+            if match.get("score_ft", "").strip():
+                skipped += 1
+                continue
             try:
-                # 本地计算X值
                 x_result = calculator.calculate_from_match(match_id)
 
                 if x_result.get("status") == "success" and x_result.get("x_value") is not None:
-                    # 保存结果到系统A
                     self.save_x_value(x_result)
                     completed += 1
                 else:
@@ -253,8 +254,9 @@ class DataConnector:
                 failed += 1
 
         return {
-            "message": f"X值计算任务完成，成功计算 {completed} 场比赛，失败 {failed} 场",
+            "message": f"X值计算任务完成，成功计算 {completed} 场，跳过 {skipped} 场(已完成)，失败 {failed} 场",
             "completed": completed,
+            "skipped": skipped,
             "failed": failed
         }
 
