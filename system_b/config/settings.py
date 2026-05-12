@@ -1,7 +1,7 @@
 """系统 B：配置文件"""
 
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -34,10 +34,11 @@ class Settings(BaseSettings):
     # 日志
     log_level: str = "INFO"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        extra = "ignore"  # 忽略 System A 的额外环境变量
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 @lru_cache()

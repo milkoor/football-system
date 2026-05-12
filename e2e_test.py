@@ -6,8 +6,12 @@ E2E 全流程测试脚本
 
 import sys
 import os
+
+# 只添加 system_b 到路径 — system_a 通过 HTTP API 访问
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "system_b"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "system_a"))
+
+# 强制使用 localhost 访问 Docker 服务
+os.environ["SYSTEM_A_API_URL"] = "http://localhost:8000"
 
 import json
 import time
@@ -90,7 +94,6 @@ status, body = http_get(f"{SYS_B}/", timeout=30)
 test("Streamlit accessible", status == 200, f"HTTP {status}")
 
 try:
-    os.environ.setdefault("SYSTEM_A_API_URL", "http://localhost:8000")
     from system_b.modules.data_connector import get_connector
     conn = get_connector()
     test("DataConnector init", conn is not None)
@@ -154,8 +157,9 @@ except Exception as e:
     test("follow manager init", False, str(e)[:80])
 
 try:
+    from system_b.modules.data_connector import get_connector as _get_conn
     from system_b.modules.x_calculator import XValueCalculator
-    calc = XValueCalculator(data_connector=get_connector())
+    calc = XValueCalculator(data_connector=_get_conn())
     test("XValueCalculator init", calc is not None)
 except Exception as e:
     test("XValueCalculator init", False, str(e)[:80])
