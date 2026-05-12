@@ -12,34 +12,34 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+
 import logging
-
-if os.getenv("IS_DOCKER") is None:
-    try:
-        from modules.auto_sync import SyncScheduler
-        from modules.data_connector import get_connector
-        from modules.follow_list import get_follow_manager
-        from config.settings import get_settings
-
-        logger = logging.getLogger(__name__)
-        scheduler = SyncScheduler(
-            connector=get_connector(),
-            follow_manager=get_follow_manager(),
-            settings=get_settings()
-        )
-        logger.info("自动同步调度器已启动" if scheduler.get_scheduler() else "自动同步功能已禁用")
-    except Exception as e:
-        logger.error(f"初始化自动同步调度器失败: {str(e)}")
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger(__name__)
 
-if 'initialized' not in st.session_state:
-    st.session_state.initialized = True
-    logger.info("应用程序初始化完成")
+# 初始化自动同步调度器（在 Docker 和非 Docker 环境下都运行）
+try:
+    from modules.auto_sync import SyncScheduler
+    from modules.data_connector import get_connector
+    from modules.follow_list import get_follow_manager
+    from config.settings import get_settings
+
+    if "auto_scheduler" not in st.session_state:
+        sched = SyncScheduler(
+            connector=get_connector(),
+            follow_manager=get_follow_manager(),
+            settings=get_settings()
+        )
+        st.session_state.auto_scheduler = sched
+        logger = logging.getLogger(__name__)
+        logger.info("自动同步调度器已启动" if sched.get_scheduler() else "自动同步功能已禁用")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"初始化自动同步调度器失败: {str(e)}")
 
 # ---------------------------------------------------------------------------
 # 页面定义（使用可调用函数，避免 Streamlit 文件路径→URL 推断问题）
