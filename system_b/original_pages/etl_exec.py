@@ -41,7 +41,7 @@ def render():
             ready_leagues.append((lg, current, curr_counts, previous, prev_counts))
 
     if not ready_leagues:
-        st.warning("沒有已同步比賽紀錄的聯賽。請先至「系統同步」頁面同步資料。")
+        st.warning("沒有已同步比賽紀錄的聯賽。請先至「📥 数据导入」頁面點擊「僅導入到系統B」按鈕，將比賽數據寫入本地資料庫後再來執行 ETL。")
         st.stop()
 
     st.subheader("可執行的聯賽")
