@@ -168,6 +168,11 @@ class DataConnector:
         result = self._request("POST", f"/api/leagues/{league_id}/sync-seasons")
         return result
 
+    def sync_all_seasons(self) -> Dict:
+        """批量同步所有联赛的赛季赛程（单后台任务）"""
+        result = self._request("POST", "/api/leagues/batch-sync-seasons")
+        return result
+
     # ============ 结算相关 ============
 
     def auto_settle_match(self, match_id: int) -> Dict:

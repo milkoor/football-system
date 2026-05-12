@@ -10,10 +10,9 @@
 import streamlit as st
 import time
 import logging
-import concurrent.futures
 
 from core.config_store import get_store
-from modules.data_connector import get_connector, DataConnector
+from modules.data_connector import get_connector
 
 logger = logging.getLogger(__name__)
 
@@ -130,110 +129,50 @@ def render():
                     time.sleep(1)
                 st.success("✅ 联赛列表同步完成")
 
-                leagues = connector.get_leagues(enabled=True)
-                total = len(leagues)
+                st.write("步驟 2/3: 啟動批量同步...")
+                result = connector.sync_sync_all_seasons()
+                job_id = result.get('job_id', 'unknown')
+                st.success(f"✅ 批量同步任務已啟動 — job_id={job_id}")
+                st.info("💡 一個後台任務依次處理所有聯賽，crawler 自帶 _random_delay(1-3s) 控制節奏。可以切換頁面，回來查看進度。")
 
-                st.write(f"步驟 2/3: 觸發 {total} 個聯賽的賽季同步...")
-                job_records = []
-                progress_ui = st.progress(0, text="正在觸發聯賽同步...")
-
-                def _trigger_one(league):
-                    """单联赛触发函数（在子线程中运行）"""
-                    name = league.get('league_name_tw', league.get('league_name_zh', ''))
-                    try:
-                        conn = DataConnector()
-                        result = conn.sync_seasons_for_league(league['id'])
-                        jid = result.get('job_id', 'unknown')
-                        return {'league_name': name, 'job_id': jid, 'status': 'triggered'}
-                    except Exception as e:
-                        return {'league_name': name, 'job_id': None, 'status': 'failed', 'error': str(e)}
-                    finally:
-                        conn.close()
-
-                # 5 个并发避免压垮系统 A 的连接池，每个 POST 即刻返回
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-                    fut_map = {pool.submit(_trigger_one, league): league for league in leagues}
-                    for i, fut in enumerate(concurrent.futures.as_completed(fut_map), 1):
-                        rec = fut.result()
-                        job_records.append(rec)
-                        progress_ui.progress(i / total, text=f"({i}/{total}) {rec['league_name']}")
-                        if rec['status'] == 'triggered':
-                            st.write(f"  ✅ ({i}/{total}) {rec['league_name']} — 任務 {rec['job_id']}")
-                        else:
-                            st.write(f"  ⚠️ ({i}/{total}) {rec['league_name']}: {rec.get('error', '?')}")
-
-                st.session_state.sync_jobs = job_records
-                st.session_state.sync_in_progress = True
-
-                st.success(f"🎉 已觸發 {len(job_records)} 個聯賽的同步任務")
-                st.info("💡 同步任務在後台非同步執行，可以切換到其他頁面，返回此頁面可查看進度")
+                st.session_state.batch_job_id = job_id
+                st.session_state.batch_in_progress = True
                 st.rerun()
             except Exception as e:
                 st.error(f"同步流程失敗: {e}")
 
-    # ============ 同步進度（跨頁面持久化） ============
-    if st.session_state.sync_in_progress and st.session_state.sync_jobs:
+    if st.session_state.get("batch_in_progress") and st.session_state.get("batch_job_id"):
         st.divider()
         st.subheader("📊 同步進度")
 
-        updated = []
-        running = 0
-        completed = 0
-        failed = 0
-        total = 0
+        try:
+            job = connector.get_crawl_job(st.session_state.batch_job_id)
+            if job:
+                status = job.get('status', 'unknown')
+                total = job.get('total_matches', 0)
+                completed = job.get('completed_matches', 0)
+                failed = job.get('failed_matches', 0)
 
-        for job in st.session_state.sync_jobs:
-            status = job.get('status', 'unknown')
-            if job.get('job_id') and status in ('triggered', 'running'):
-                try:
-                    detail = connector.get_crawl_job(job['job_id'])
-                    if detail:
-                        status = detail.get('status', status)
-                        job['status'] = status
-                except Exception:
-                    pass
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("狀態", status)
+                with c2:
+                    st.metric("已處理場次", completed)
+                with c3:
+                    st.metric("失敗", failed)
 
-            if status == 'completed':
-                completed += 1
-            elif status in ('running', 'triggered', 'pending'):
-                running += 1
-            elif status == 'failed':
-                failed += 1
-            else:
-                total += 1
-            updated.append(job)
-
-        st.session_state.sync_jobs = updated
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("總計", len(updated))
-        with c2:
-            st.metric("✅ 完成", completed)
-        with c3:
-            st.metric("⏳ 執行中", running)
-        with c4:
-            st.metric("❌ 失敗", failed)
-
-        with st.expander("查看各聯賽狀態", expanded=True):
-            for job in st.session_state.sync_jobs:
-                s = job.get('status', 'unknown')
-                icons = {'completed': '✅', 'running': '⏳', 'triggered': '⏳',
-                         'failed': '❌', 'pending': '⏳'}
-                icon = icons.get(s, '❓')
-                st.write(f"{icon} {job['league_name']} — {s}")
-
-        all_done = (running == 0)
-        if all_done:
-            st.success(f"🎉 所有聯賽同步完成！成功 {completed}，失敗 {failed}")
-            st.session_state.sync_in_progress = False
-            st.info("请前往「数据导入」页面继续后续流程")
-            if st.button("🔄 刷新頁面"):
-                st.rerun()
-        else:
-            st.info("⏳ 部分聯賽仍在同步中，每 5 秒自動刷新...")
-            time.sleep(5)
-            st.rerun()
+                if status == "completed":
+                    st.success(f"🎉 批量同步完成！共 {total} 場比賽，失敗 {failed}")
+                    st.session_state.batch_in_progress = False
+                elif status == "failed":
+                    st.error(f"❌ 批量同步失敗: {job.get('error_message', '未知錯誤')}")
+                    st.session_state.batch_in_progress = False
+                else:
+                    st.info("⏳ 同步進行中（每 10 秒自動刷新）...")
+                    time.sleep(10)
+                    st.rerun()
+        except Exception as e:
+            st.warning(f"獲取進度失敗: {e}")
 
     st.divider()
 
