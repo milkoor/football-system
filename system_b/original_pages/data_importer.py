@@ -336,8 +336,16 @@ def render():
                 prog = st.progress(0)
                 for i in range(0, len(all_completed), batch_size):
                     batch = all_completed[i:i+batch_size]
-                    match_ids = [m['match_id'] for m in batch]
-                    results = x_calculator.batch_calculate(match_ids)
+                    # 分出已有比分(已完成)的比赛，跳过X值计算
+                    active = [m for m in batch if not m.get('score_ft', '').strip()]
+                    done_count = len(batch) - len(active)
+
+                    results = []
+                    if active:
+                        match_ids = [m['match_id'] for m in active]
+                        results = x_calculator.batch_calculate(match_ids)
+                    else:
+                        results = [{"status": "skipped"} for _ in active]
 
                     for r in results:
                         if r.get('status') == 'success':
@@ -347,10 +355,9 @@ def render():
                             except:
                                 pass
 
-                    for idx, r in enumerate(results):
+                    for idx, (md, r) in enumerate(zip(active, results)):
                         if r.get('status') == 'success':
                             try:
-                                md = batch[idx]
                                 lid_b = sync_league_to_system_b(store, connector, md)
                                 sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
                                 from core.models import MatchRecord
@@ -372,6 +379,9 @@ def render():
                                 imported += 1
                             except Exception as e:
                                 logger.error(f"导入失败: {e}")
+
+                    if done_count:
+                        st.caption(f"批次 {i//batch_size+1}: 跳过 {done_count} 场已完成比赛")
                     prog.progress(min((i + batch_size) / len(all_completed), 1.0))
 
                 st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录到系统B")
