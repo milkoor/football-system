@@ -200,113 +200,14 @@ def render():
         st.error(f"取得聯賽列表失敗: {e}")
 
     st.divider()
-
-    st.subheader("同步賽季賽程")
-
-    selected_league = None
-    try:
-        leagues = connector.get_leagues(enabled=True)
-        if leagues:
-            league_options = {
-                f"{l.get('country', '')} - {l.get('league_name_tw', l.get('league_name_zh', ''))}": l for l in leagues
-            }
-            selected_league_name = st.selectbox(
-                "選擇聯賽",
-                list(league_options.keys())
-            )
-            selected_league = league_options[selected_league_name]
-        else:
-            st.warning("請先同步聯賽列表")
-    except Exception as e:
-        st.error(f"取得聯賽列表失敗: {e}")
-
-    if selected_league:
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            if st.button("🔄 同步賽季賽程", type="primary"):
-                try:
-                    with st.spinner(f"正在同步 {selected_league_name} 的賽季賽程..."):
-                        result = connector.sync_seasons_for_league(selected_league['id'])
-                        st.success(f"賽程同步成功: {result.get('message')}")
-                except Exception as e:
-                    st.error(f"賽程同步失敗: {e}")
-
-        with col2:
-            st.info("此功能會呼叫系統A的LeagueCrawler抓取指定聯賽的賽季賽程，並儲存到資料庫中。")
-
-        st.divider()
-
-        try:
-            matches_result = connector.get_matches(
-                league_id=selected_league['id'],
-                page=1,
-                page_size=1
-            )
-            total = matches_result.get('total', 0)
-            st.metric("比賽數量", total)
-        except Exception as e:
-            st.error(f"取得比賽數量失敗: {e}")
-
-        st.divider()
-
-        st.subheader("下一步操作指引")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.warning("⚠️ 重要提示")
-            st.markdown("""
-            同步賽季賽程成功，但數據尚未計算X值！
-
-            **接下來需要執行：**
-            1. 前往「数据导入」頁面
-            2. 完成「關注管理」步驟
-            3. 下載賠率數據
-            4. 計算X值並導入到系統B
-
-            只有完成這些步驟後，數據才會出現在ETL執行和其他功能中！
-            """)
-
-        with col2:
-            st.info("🔄 快捷操作")
-            st.markdown("""
-            **請手動前往「数据导入」頁面**：
-
-            點擊左側導航菜單中的「📥 数据导入」選項，
-            然後按照以下步驟執行：
-            1. 添加關注聯賽
-            2. 下載賠率數據
-            3. 計算X值並導入到系統B
-            """)
-
-        st.divider()
-
-        if st.button("查看完整流程說明"):
-            with st.expander("三步完整流程詳解"):
-                st.markdown("""
-                ### 1. 系統同步（當前頁面）
-                - 同步聯賽列表
-                - 同步賽季賽程
-                - 獲取比賽基本信息
-
-                ### 2. 数据导入 - 關注管理
-                - 將需要分析的聯賽賽季添加到「關注名單」
-                - 支持按國家、聯賽名稱篩選
-
-                ### 3. 数据导入 - 下載賠率
-                - 下載關注名單中所有比賽的賠率數據
-                - 自動分批觸發爬取任務
-
-                ### 4. 数据导入 - 計算X值
-                - 計算所有已完成賠率爬取的比賽的X值
-                - 自動同步到系統B的數據庫中
-                - 支持批次處理，防止超時
-
-                ### 5. ETL執行
-                - 執行完整的數據分析流程
-                - 進行分類、聚類、信號生成
-                - 生成決策報表
-                """)
+    st.subheader("下一步")
+    st.markdown("""
+    **前往「📥 数据导入」頁面** 完成後續操作：
+    1. 添加關注聯賽/賽季
+    2. 同步賽程（下載比賽數據）
+    3. 爬取賠率
+    4. 計算X值
+    """)
 
 
 if __name__ == "__main__":
