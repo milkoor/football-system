@@ -383,48 +383,6 @@ def render():
     else:
         st.warning("请先添加关注的联赛赛季")
 
-    # ============ 任务状态查看 ============
-    st.divider()
-    st.subheader("任务状态")
-
-    if st.button("📋 查看爬取任务"):
-        try:
-            jobs = connector.get_crawl_jobs()
-            if jobs:
-                for job in jobs:
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        st.write(f"任务 {job['job_id']}: {job['status']}")
-                    with col2:
-                        st.write(f"完成: {job['completed_matches']}/{job['total_matches']}")
-                    with col3:
-                        if job['status'] in ['pending', 'running']:
-                            if st.button("停止", key=f"stop_{job['job_id']}"):
-                                connector.stop_crawl_job(job['id'])
-                                st.rerun()
-            else:
-                st.info("暂无爬虫任务")
-
-        except Exception as e:
-            st.error(f"获取任务列表失败: {e}")
-
-    # ============ 系统状态 ============
-    st.divider()
-    st.subheader("系统状态")
-
-    try:
-        stats = connector.get_crawl_stats()
-        if stats:
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                st.metric("总比赛数", stats.get('total_matches', 0))
-            with col2:
-                st.metric("已爬取赔率", stats.get('completed', 0))
-            with col3:
-                st.metric("待爬取", stats.get('pending', 0))
-    except Exception as e:
-        st.error(f"获取统计信息失败: {e}")
-
 
 if __name__ == "__main__":
     render()
