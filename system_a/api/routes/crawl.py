@@ -97,16 +97,12 @@ def run_crawl_task(job_id: int, db: Session):
                 Match.league_id == job.league_id,
             ).all()
 
-            # 智能过滤：只爬取未完成的比赛
+            # 将所有比赛传给爬虫（爬虫内部会跳过已完成比赛并更新状态）
             for match in matches:
-                is_completed = match.score_ft and match.score_ft.strip()
-                if is_completed:
-                    logger.info(f"跳过已完成的比赛: {match.match_id}")
-                    skipped_completed += 1
-                else:
-                    match_ids.append(match.match_id)
+                match_ids.append(match.match_id)
+            logger.info(f"准备处理 {len(match_ids)} 场比赛")
 
-        logger.info(f"准备爬取 {len(match_ids)} 场比赛，已跳过 {skipped_completed} 场已完成比赛")
+        logger.info(f"准备爬取 {len(match_ids)} 场比赛")
 
         # 爬取每场比赛的赔率数据
         completed = 0
