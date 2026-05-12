@@ -12,7 +12,6 @@ try:
     else:
         from original_pages.team_grouping import render
     
-    render()
 except Exception as e:
     st.error(f"页面加载失败: {e}")
     import traceback
