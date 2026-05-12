@@ -1,6 +1,5 @@
 """系统 B：Streamlit 应用入口"""
 import streamlit as st
-# 必须在任何其他Streamlit命令之前调用
 st.set_page_config(
     page_title="足球数据分析系统",
     page_icon="⚽",
@@ -11,13 +10,10 @@ st.set_page_config(
 import sys
 import os
 
-# 添加项目根目录到系统路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
-from pathlib import Path
 
-# 初始化自动同步调度器（仅在非Docker环境下）
 if os.getenv("IS_DOCKER") is None:
     try:
         from modules.auto_sync import SyncScheduler
@@ -26,8 +22,6 @@ if os.getenv("IS_DOCKER") is None:
         from config.settings import get_settings
 
         logger = logging.getLogger(__name__)
-
-        # 初始化调度器
         scheduler = SyncScheduler(
             connector=get_connector(),
             follow_manager=get_follow_manager(),
@@ -37,42 +31,43 @@ if os.getenv("IS_DOCKER") is None:
     except Exception as e:
         logger.error(f"初始化自动同步调度器失败: {str(e)}")
 
-# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# 全局状态管理
 if 'initialized' not in st.session_state:
     st.session_state.initialized = True
     logger.info("应用程序初始化完成")
 
-# 定义所有页面（使用包装文件）
-page_home = st.Page("views/home.py", title="首页", icon="🏠", url_path="home")
+# ---------------------------------------------------------------------------
+# 页面定义（使用可调用函数，避免 Streamlit 文件路径→URL 推断问题）
+# ---------------------------------------------------------------------------
 
-# 数据准备分组
-page_system_sync = st.Page("views/system_sync.py", title="系统同步", icon="🔄", url_path="system_sync")
-page_data_import = st.Page("views/data_importer.py", title="数据导入", icon="📥", url_path="data_importer")
-page_league_mgmt = st.Page("views/league_management.py", title="联赛管理", icon="🏆", url_path="league_management")
-page_team_groups = st.Page("views/team_grouping.py", title="队伍分组", icon="👥", url_path="team_grouping")
-page_file_upload = st.Page("views/file_upload.py", title="檔案上傳", icon="📄", url_path="file_upload")
+def _page(name, module):
+    """生成页面渲染函数"""
+    def _render():
+        from importlib import import_module
+        mod = import_module(module)
+        mod.render()
+    _render.__name__ = name
+    return _render
 
-# 数据分析分组
-page_params = st.Page("views/settings.py", title="参数设定", icon="⚙️", url_path="settings")
-page_etl = st.Page("views/etl_exec.py", title="ETL执行", icon="▶️", url_path="etl_exec")
+page_home = st.Page(_page("home", "views.home"), title="首页", icon="🏠", url_path="home")
+page_system_sync = st.Page(_page("system_sync", "views.system_sync"), title="系统同步", icon="🔄", url_path="system_sync")
+page_data_import = st.Page(_page("data_import", "views.data_importer"), title="数据导入", icon="📥", url_path="data_importer")
+page_league_mgmt = st.Page(_page("league_mgmt", "views.league_management"), title="联赛管理", icon="🏆", url_path="league_management")
+page_team_groups = st.Page(_page("team_groups", "views.team_grouping"), title="队伍分组", icon="👥", url_path="team_grouping")
+page_file_upload = st.Page(_page("file_upload", "views.file_upload"), title="檔案上傳", icon="📄", url_path="file_upload")
+page_params = st.Page(_page("settings", "views.settings"), title="参数设定", icon="⚙️", url_path="settings")
+page_etl = st.Page(_page("etl_exec", "views.etl_exec"), title="ETL执行", icon="▶️", url_path="etl_exec")
+page_report = st.Page(_page("dashboard", "views.dashboard"), title="报表看板", icon="📊", url_path="dashboard")
+page_history = st.Page(_page("history", "views.history"), title="历史纪录", icon="📜", url_path="history")
+page_tasks = st.Page(_page("task_list", "views.task_list"), title="任务列表", icon="📋", url_path="task_list")
+page_validation = st.Page(_page("data_validation", "views.data_validation"), title="数据验证", icon="✅", url_path="data_validation")
+page_db_mgmt = st.Page(_page("database_mgmt", "views.database_management"), title="数据库管理", icon="🗄️", url_path="database_management")
 
-# 结果输出分组
-page_report = st.Page("views/dashboard.py", title="报表看板", icon="📊", url_path="dashboard")
-page_history = st.Page("views/history.py", title="历史纪录", icon="📜", url_path="history")
-
-# 运维分组
-page_tasks = st.Page("views/task_list.py", title="任务列表", icon="📋", url_path="task_list")
-page_validation = st.Page("views/data_validation.py", title="数据验证", icon="✅", url_path="data_validation")
-page_db_mgmt = st.Page("views/database_management.py", title="数据库管理", icon="🗄️", url_path="database_management")
-
-# 定义分组导航 - 移除信号追踪页面和文件下载页面（功能已整合到数据导入）
 pg = st.navigation({
     "🏠 首页": [page_home],
     "📊 数据准备": [page_system_sync, page_data_import, page_league_mgmt, page_team_groups, page_file_upload],
@@ -81,5 +76,4 @@ pg = st.navigation({
     "🖥️ 运维": [page_tasks, page_validation, page_db_mgmt]
 })
 
-# 运行导航
 pg.run()
