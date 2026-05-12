@@ -97,6 +97,53 @@ def render():
         else:
             Path(tmp_restore.name).unlink(missing_ok=True)
 
+    # ---------------------------------------------------------------------------
+    # Reset: clear all data in both databases
+    # ---------------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("🗑️ 重置資料庫")
+    st.error("⚠️ 此操作將清空系統 A 和系統 B 的所有數據，包括聯賽、賽季、比賽、賠率、X值、分組隊伍、ETL 結果。")
+
+    reset_step = st.session_state.get("reset_step", 0)
+
+    if reset_step == 0:
+        if st.button("🔄 開始重置", type="secondary", key="btn_reset_start"):
+            st.session_state.reset_step = 1
+            st.rerun()
+
+    elif reset_step == 1:
+        st.warning("⚠️ 再次確認：這會刪除所有數據！此操作不可還原。")
+        col_y, col_n = st.columns([1, 1])
+        with col_y:
+            if st.button("✅ 確認，清空所有數據", type="primary", key="btn_reset_confirm"):
+                st.session_state.reset_step = 2
+                st.rerun()
+        with col_n:
+            if st.button("❌ 取消", key="btn_reset_cancel"):
+                st.session_state.reset_step = 0
+                st.rerun()
+
+    elif reset_step == 2:
+        with st.spinner("正在清空資料..."):
+            try:
+                # 清空 System B SQLite
+                for t in ['decision_results', 'etl_runs', 'match_records',
+                          'league_group_teams', 'season_instances', 'leagues', 'global_groups']:
+                    store._conn.execute(f"DELETE FROM {t}")
+                store._conn.commit()
+
+                # 清空 System A PostgreSQL
+                from modules.data_connector import get_connector
+                conn = get_connector()
+                conn._request("POST", "/api/leagues/clear-all")
+
+                st.success("✅ 所有資料已清空！")
+                st.session_state.reset_step = 0
+                st.info("請前往「系統同步」頁面重新同步聯賽和賽季數據。")
+            except Exception as e:
+                st.error(f"❌ 清空失敗: {e}")
+                st.session_state.reset_step = 0
+
 
 if __name__ == "__main__":
     render()
