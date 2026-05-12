@@ -150,7 +150,8 @@ def render():
                     finally:
                         conn.close()
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                # 5 个并发避免压垮系统 A 的连接池，每个 POST 即刻返回
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
                     fut_map = {pool.submit(_trigger_one, league): league for league in leagues}
                     for i, fut in enumerate(concurrent.futures.as_completed(fut_map), 1):
                         rec = fut.result()

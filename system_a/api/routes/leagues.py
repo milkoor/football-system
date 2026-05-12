@@ -274,7 +274,13 @@ async def sync_seasons_for_league(
     db.commit()
     db.refresh(job)
 
-    def do_sync(job_id: int):
+    def do_sync_schedule(job_id: int):
+        import random as _random
+        import time as _time
+
+        # 随机错峰启动（0~8s），避免大量 BackgroundTask 同时发请求给 titan007
+        _time.sleep(_random.uniform(0, 8))
+
         from config.database import SessionLocal
         db = SessionLocal()
 
@@ -286,9 +292,6 @@ async def sync_seasons_for_league(
                 db.commit()
 
             crawler = LeagueCrawler()
-
-            # 自动获取可用的赛季列表
-            season_labels = crawler.get_available_seasons(league.league_id)
 
             total_matches = 0
             completed_matches = 0
@@ -389,7 +392,7 @@ async def sync_seasons_for_league(
         finally:
             db.close()
 
-    background_tasks.add_task(do_sync, job.id)
+    background_tasks.add_task(do_sync_schedule, job.id)
     return {"message": f"联赛 {league_id} 赛季同步任务已启动", "status": "started", "job_id": job.job_id}
 
 
