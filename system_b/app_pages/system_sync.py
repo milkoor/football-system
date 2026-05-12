@@ -31,26 +31,30 @@ def render():
 
     st.subheader("同步狀態")
 
+    # 获取联赛数和赛季标签数
+    league_count = 0
+    season_count = 0
+    try:
+        leagues = connector.get_leagues(enabled=True)
+        league_count = len(leagues)
+        jobs = connector.get_crawl_jobs(limit=50)
+        for j in jobs:
+            if j.get('job_type') == 'batch_sync_schedule' and j.get('status') == 'completed':
+                season_count = j.get('total_matches', 0)
+                break
+    except:
+        pass
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
 
     with col2:
-        try:
-            stats = connector.get_crawl_stats()
-            st.metric("比賽數", stats.get('total_matches', 0))
-        except Exception as e:
-            st.metric("比賽數", "❌")
-            logger.warning(f"獲取比賽數失敗: {e}")
+        st.metric("聯賽數", league_count)
 
     with col3:
-        try:
-            stats = connector.get_crawl_stats()
-            st.metric("待爬取賠率", stats.get('pending', 0))
-        except Exception as e:
-            st.metric("待爬取賠率", "❌")
-            logger.warning(f"獲取待爬取數量失敗: {e}")
+        st.metric("賽季標籤數", season_count)
 
     st.divider()
 
