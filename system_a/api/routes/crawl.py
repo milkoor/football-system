@@ -95,7 +95,6 @@ def run_crawl_task(job_id: int, db: Session):
             from config.models import Match
             matches = db.query(Match).filter(
                 Match.league_id == job.league_id,
-                Match.season == job.season_label,
             ).all()
 
             # 智能过滤：只爬取未完成的比赛
@@ -138,7 +137,6 @@ def run_crawl_task(job_id: int, db: Session):
         job.completed_at = datetime.utcnow()
         job.completed_matches = completed
         job.failed_matches = failed
-        job.total_matches = len(match_ids)
         db.commit()
 
     except Exception as e:
@@ -241,7 +239,6 @@ async def start_crawl(
         from config.models import Match
         match_count = db.query(Match).filter(
             Match.league_id == league_id,
-            Match.season == season_label,
         ).count()
         job.total_matches = match_count
 

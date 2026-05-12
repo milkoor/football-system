@@ -160,95 +160,172 @@ def render():
         else:
             st.info("暂无关注的联赛赛季")
 
-    # ============ 同步操作 ============
+    # ============ 完整同步（赛程 + 赔率 + X值） ============
     st.divider()
-    st.subheader("同步操作")
+    st.subheader("完整同步")
+
+    if "sync_step" not in st.session_state:
+        st.session_state.sync_step = None  # None / 'sync' / 'crawl' / 'xcalc' / 'done'
 
     following = follow_manager.get_all()
     if following:
-        col1, col2, col3 = st.columns([1, 1, 1])
-
+        col1, col2, col3 = st.columns(3)
         with col1:
-            sync_schedule_btn = st.button("🔄 同步赛程", type="primary")
-
+            st.metric("关注赛季数量", len(following))
         with col2:
-            crawl_odds_btn = st.button("📥 爬取赔率", type="primary")
-
+            total = sum(connector.get_matches(league_id=item['league_id'], page=1, page_size=1).get('total', 0) for item in following)
+            st.metric("总比赛数", total)
         with col3:
-            calculate_x_btn = st.button("🧮 计算X值", type="primary")
+            pending = sum(connector.get_matches(league_id=item['league_id'], crawl_status='pending', page=1, page_size=1).get('total', 0) for item in following)
+            st.metric("待爬取赔率", pending)
 
-        # 同步赛程操作
-        if sync_schedule_btn:
-            st.divider()
-            st.subheader("同步赛程")
+        step = st.session_state.sync_step
+        if step is None:
+            if st.button("🚀 完整同步（赛程→赔率→X值）", type="primary", key="btn_full_sync"):
+                st.session_state.sync_step = 'sync'
+                st.session_state.sync_results = []
+                st.rerun()
+
+        elif step == 'sync':
+            st.caption("步骤 1/3: 同步赛程...")
+            pending_jobs = []
             for item in following:
-                with st.spinner(f"正在同步 {item['league_name']} ({item['season_label']}) 赛季赛程..."):
-                    try:
-                        result = connector.sync_seasons_for_league(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}: {result.get('message', '同步成功')}")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+                try:
+                    result = connector.sync_seasons_for_league(item['league_id'], item['season_label'])
+                    jid = result.get('job_id')
+                    if jid:
+                        pending_jobs.append(jid)
+                except Exception as e:
+                    st.warning(f"{item['league_name']} 同步触发失败: {e}")
 
-        # 爬取赔率操作
-        if crawl_odds_btn:
-            st.divider()
-            st.subheader("爬取赔率")
+            st.session_state.sync_pending = pending_jobs
+            st.session_state.sync_step = 'poll_sync'
+            st.rerun()
+
+        elif step == 'poll_sync':
+            st.caption("步骤 1/3: 等待赛程同步完成...")
+            remaining = []
+            for jid in st.session_state.get('sync_pending', []):
+                try:
+                    job = connector.get_crawl_job(jid)
+                    if job and job.get('status') in ('running', 'pending', None):
+                        remaining.append(jid)
+                except:
+                    remaining.append(jid)
+            st.progress((len(st.session_state.sync_pending) - len(remaining)) / max(len(st.session_state.sync_pending), 1))
+            if remaining:
+                st.info(f"等待 {len(remaining)} 个同步任务完成...")
+                time.sleep(3)
+                st.rerun()
+            else:
+                st.success("✅ 赛程同步完成")
+                st.session_state.sync_step = 'crawl'
+                st.rerun()
+
+        elif step == 'crawl':
+            st.caption("步骤 2/3: 触发赔率爬取...")
+            crawl_jobs = []
             for item in following:
-                with st.spinner(f"正在爬取 {item['league_name']} ({item['season_label']}) 赔率数据..."):
-                    try:
-                        result = connector.trigger_crawl(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}: 任务 {result.get('job_id', 'unknown')} 已启动")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+                try:
+                    result = connector.trigger_crawl(item['league_id'], item['season_label'])
+                    jid = result.get('job_id')
+                    if jid:
+                        crawl_jobs.append(jid)
+                except Exception as e:
+                    st.warning(f"{item['league_name']} 爬取触发失败: {e}")
 
-        # 计算X值操作
-        if calculate_x_btn:
-            st.divider()
-            st.subheader("计算X值")
+            st.session_state.crawl_pending = crawl_jobs
+            st.session_state.sync_step = 'poll_crawl'
+            st.rerun()
+
+        elif step == 'poll_crawl':
+            st.caption("步骤 2/3: 等待赔率爬取完成...")
+            remaining = []
+            for jid in st.session_state.get('crawl_pending', []):
+                try:
+                    job = connector.get_crawl_job(jid)
+                    if job and job.get('status') in ('running', 'pending', None):
+                        remaining.append(jid)
+                except:
+                    remaining.append(jid)
+            st.progress((len(st.session_state.crawl_pending) - len(remaining)) / max(len(st.session_state.crawl_pending), 1))
+            if remaining:
+                st.info(f"等待 {len(remaining)} 个爬取任务完成...")
+                time.sleep(3)
+                st.rerun()
+            else:
+                st.success("✅ 赔率爬取完成")
+                st.session_state.sync_step = 'xcalc'
+                st.rerun()
+
+        elif step == 'xcalc':
+            st.caption("步骤 3/3: 计算X值并导入系统B...")
+            all_completed = []
             for item in following:
-                with st.spinner(f"正在计算 {item['league_name']} ({item['season_label']}) X值..."):
-                    try:
-                        result = connector.calculate_x_values(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}: 任务 {result.get('job_id', 'unknown')} 已启动")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+                try:
+                    mr = connector.get_matches(league_id=item['league_id'], crawl_status='completed', page=1, page_size=10000)
+                    for m in (mr.get('matches') or mr.get('data') or []):
+                        all_completed.append(m)
+                except:
+                    pass
 
-        # 一键同步所有操作
-        st.divider()
-        if st.button("🚀 一键同步所有", type="secondary"):
-            st.divider()
-            # 同步赛程
-            st.subheader("1. 同步赛程")
-            for item in following:
-                with st.spinner(f"正在同步 {item['league_name']} ({item['season_label']})..."):
-                    try:
-                        result = connector.sync_seasons_for_league(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+            if all_completed:
+                batch_size = 100
+                success = 0
+                imported = 0
+                prog = st.progress(0)
+                for i in range(0, len(all_completed), batch_size):
+                    batch = all_completed[i:i+batch_size]
+                    match_ids = [m['match_id'] for m in batch]
+                    results = x_calculator.batch_calculate(match_ids)
 
-            # 爬取赔率
-            st.subheader("2. 爬取赔率")
-            for item in following:
-                with st.spinner(f"正在爬取 {item['league_name']} ({item['season_label']})..."):
-                    try:
-                        result = connector.trigger_crawl(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}: 任务 {result.get('job_id', 'unknown')}")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+                    for r in results:
+                        if r.get('status') == 'success':
+                            try:
+                                connector.save_x_value(r)
+                                success += 1
+                            except:
+                                pass
 
-            # 计算X值
-            st.subheader("3. 计算X值")
-            for item in following:
-                with st.spinner(f"正在计算 {item['league_name']} ({item['season_label']})..."):
-                    try:
-                        result = connector.calculate_x_values(item['league_id'], item['season_label'])
-                        st.success(f"✅ {item['league_name']} - {item['season_label']}: 任务 {result.get('job_id', 'unknown')}")
-                    except Exception as e:
-                        st.error(f"❌ {item['league_name']} - {item['season_label']}: {str(e)}")
+                    for idx, r in enumerate(results):
+                        if r.get('status') == 'success':
+                            try:
+                                md = batch[idx]
+                                lid_b = sync_league_to_system_b(store, connector, md)
+                                sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
+                                from core.models import MatchRecord
+                                from core.settlement import SettlementCalculator
+                                record = MatchRecord(
+                                    round_num=int(md.get('round_name', '1').replace('R_', '')),
+                                    home_team=md.get('home_team', ''),
+                                    away_team=md.get('away_team', ''),
+                                    x_value=r.get('x_value', 0.0),
+                                    settlement='', score=md.get('score_ft', ''),
+                                    link=r.get('movement_url', ''),
+                                    play_type='HDP',
+                                    target_team=r.get('target_team', ''),
+                                    is_completed=bool(md.get('score_ft', '').strip()),
+                                    match_id=str(md.get('match_id', ''))
+                                )
+                                SettlementCalculator().calculate([record])
+                                store.upsert_match_records(sid_b, 'HDP', 'Early', [record])
+                                imported += 1
+                            except Exception as e:
+                                logger.error(f"导入失败: {e}")
+                    prog.progress(min((i + batch_size) / len(all_completed), 1.0))
 
-            st.success("🎉 一键同步完成！")
+                st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录")
+            else:
+                st.warning("没有已同步的比赛数据")
 
+            st.session_state.sync_step = 'done'
+            st.rerun()
+
+        else:  # done
+            st.success("✅ 完整同步已完成，可再次点击按钮重新同步")
+            if st.button("🔄 重新同步", key="btn_reset_sync"):
+                st.session_state.sync_step = None
+                st.rerun()
     else:
         st.warning("请先添加关注的联赛赛季")
 
@@ -281,89 +358,6 @@ def render():
 
         if not is_running:
             st.caption("自动同步未启用。设置 SYNC_ENABLED=true 环境变量并重启容器以启用。")
-
-    # ============ 下载赔率 ============
-    st.divider()
-    st.subheader("下载赔率")
-
-    following = follow_manager.get_all()
-    if following:
-        # 显示统计信息
-        try:
-            total_matches = 0
-            pending_matches = 0
-
-            for item in following:
-                matches_result = connector.get_matches(
-                    league_id=item['league_id'],
-                    season=item['season_label'],
-                    page=1,
-                    page_size=10000
-                )
-                total = matches_result.get('total', 0)
-                total_matches += total
-
-                # 获取待爬取的比赛数量
-                pending_result = connector.get_matches(
-                    league_id=item['league_id'],
-                    season=item['season_label'],
-                    crawl_status='pending',
-                    page=1,
-                    page_size=10000
-                )
-                pending = pending_result.get('total', 0)
-                pending_matches += pending
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("关注赛季数量", len(following))
-            with col2:
-                st.metric("总比赛数", total_matches)
-            with col3:
-                st.metric("待爬取赔率", pending_matches)
-
-        except Exception as e:
-            st.error(f"統計數據獲取失敗: {e}")
-
-        # 一键下载所有关注联赛的赔率
-        if st.button("🚀 一键下载所有关注赔率", type="primary", key="download_all_odds"):
-            with st.spinner("正在下载关注联赛的赔率..."):
-                try:
-                    all_pending = []
-
-                    for item in following:
-                        matches_result = connector.get_matches(
-                            league_id=item['league_id'],
-                            season=item['season_label'],
-                            crawl_status='pending',
-                            page=1,
-                            page_size=10000
-                        )
-                        pending = matches_result.get('matches', [])
-                        all_pending.extend(pending)
-
-                    if all_pending:
-                        st.write(f"找到 {len(all_pending)} 场待爬取的比赛")
-
-                        # 分批触发爬取任务（每批500场）
-                        batch_size = 500
-                        for i in range(0, len(all_pending), batch_size):
-                            batch = all_pending[i:i+batch_size]
-                            match_ids = [m['match_id'] for m in batch]
-                            result = connector.trigger_crawl(match_ids=match_ids)
-                            st.write(f"批次 {i//batch_size + 1}: 任务 {result.get('job_id')} 已启动")
-
-                        st.success(f"✅ 已启动 {len(all_pending)} 场比赛的赔率爬取任务")
-                    else:
-                        st.info("🎉 所有关注比赛的赔率数据已同步完成")
-
-                except Exception as e:
-                    st.error(f"下载赔率失败: {e}")
-                    import traceback
-                    st.error(traceback.format_exc())
-
-    else:
-        st.warning("請先添加聯賽賽季到關注名單")
 
     # ============ 计算X值 ============
     st.divider()
