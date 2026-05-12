@@ -331,6 +331,14 @@ def render():
                     st.rerun()
 
             if all_completed:
+                # 建立联赛ID→名称映射
+                league_name_map = {}
+                try:
+                    for lg in connector.get_leagues(enabled=True):
+                        league_name_map[lg['id']] = lg.get('league_name_tw') or lg.get('league_name_zh', '')
+                except:
+                    pass
+
                 batch_size = 100
                 success = 0
                 imported = 0
@@ -352,7 +360,21 @@ def render():
                     for idx, (md, r) in enumerate(zip(batch, results)):
                         try:
                             x_val = r.get('x_value', 0.0) if r.get('status') == 'success' else 0.0
-                            lid_b = sync_league_to_system_b(store, connector, md)
+                            # 从 System A 获取联赛名称
+                            league_name = ''
+                            try:
+                                league_resp = connector.get_league(md.get('league_id'))
+                                if league_resp:
+                                    league_name = league_resp.get('league_name_tw') or league_resp.get('league_name_zh', '')
+                            except:
+                                pass
+                            league_info = {
+                                'id': md.get('league_id'),
+                                'league_name_tw': league_name_map.get(md.get('league_id'), ''),
+                                'country': '',
+                                'league_id': md.get('league_id')
+                            }
+                            lid_b = sync_league_to_system_b(store, connector, league_info)
                             sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
                             from core.models import MatchRecord
                             from core.settlement import SettlementCalculator
@@ -365,8 +387,6 @@ def render():
                                 link=r.get('movement_url', ''),
                                 play_type='HDP',
                                 target_team=r.get('target_team', ''),
-                                is_completed=bool(re.search(r'\d+-\d+', md.get('score_ft', '').strip())),
-                                match_id=str(md.get('match_id', ''))
                             )
                             SettlementCalculator().calculate([record])
                             store.upsert_match_records(sid_b, 'HDP', 'Early', [record])
@@ -377,8 +397,6 @@ def render():
                     if results:
                         success = sum(1 for r in results if r.get('status') == 'success')
 
-                    if done_count:
-                        st.caption(f"批次 {i//batch_size+1}: 跳过 {done_count} 场已完成比赛")
                     prog.progress(min((i + batch_size) / len(all_completed), 1.0))
 
                 st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录到系统B")
