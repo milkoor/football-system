@@ -9,11 +9,11 @@
 
 import streamlit as st
 import time
-import random
 import logging
+import concurrent.futures
 
 from core.config_store import get_store
-from modules.data_connector import get_connector
+from modules.data_connector import get_connector, DataConnector
 
 logger = logging.getLogger(__name__)
 
@@ -135,29 +135,31 @@ def render():
 
                 st.write(f"步驟 2/3: 觸發 {total} 個聯賽的賽季同步...")
                 job_records = []
-                for i, league in enumerate(leagues):
+                progress_ui = st.progress(0, text="正在觸發聯賽同步...")
+
+                def _trigger_one(league):
+                    """单联赛触发函数（在子线程中运行）"""
                     name = league.get('league_name_tw', league.get('league_name_zh', ''))
                     try:
-                        result = connector.sync_seasons_for_league(league['id'])
+                        conn = DataConnector()
+                        result = conn.sync_seasons_for_league(league['id'])
                         jid = result.get('job_id', 'unknown')
-                        job_records.append({
-                            'league_name': name,
-                            'job_id': jid,
-                            'status': 'triggered'
-                        })
-                        st.write(f"  ✅ ({i+1}/{total}) {name} — 任務 {jid}")
+                        return {'league_name': name, 'job_id': jid, 'status': 'triggered'}
                     except Exception as e:
-                        job_records.append({
-                            'league_name': name,
-                            'job_id': None,
-                            'status': 'failed',
-                            'error': str(e)
-                        })
-                        st.warning(f"  ⚠️ ({i+1}/{total}) {name}: {str(e)}")
+                        return {'league_name': name, 'job_id': None, 'status': 'failed', 'error': str(e)}
+                    finally:
+                        conn.close()
 
-                    if i < total - 1:
-                        delay = random.uniform(1.5, 3.0)
-                        time.sleep(delay)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                    fut_map = {pool.submit(_trigger_one, league): league for league in leagues}
+                    for i, fut in enumerate(concurrent.futures.as_completed(fut_map), 1):
+                        rec = fut.result()
+                        job_records.append(rec)
+                        progress_ui.progress(i / total, text=f"({i}/{total}) {rec['league_name']}")
+                        if rec['status'] == 'triggered':
+                            st.write(f"  ✅ ({i}/{total}) {rec['league_name']} — 任務 {rec['job_id']}")
+                        else:
+                            st.write(f"  ⚠️ ({i}/{total}) {rec['league_name']}: {rec.get('error', '?')}")
 
                 st.session_state.sync_jobs = job_records
                 st.session_state.sync_in_progress = True
