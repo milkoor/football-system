@@ -26,6 +26,14 @@ def skip(name, reason):
     SKIP += 1
     print(f"  ⏭️  {name} — {reason}")
 
+def find_main_league(leagues, name):
+    """找到主联赛（排除盃赛等衍生赛事）"""
+    for l in leagues:
+        n = l.get('league_name_tw', '') or l.get('league_name_zh', '')
+        if name in n and '盃' not in n and '杯' not in n and '預' not in n:
+            return l
+    return None
+
 def http_get(url, timeout=15):
     try:
         resp = urllib.request.urlopen(url, timeout=timeout)
@@ -145,7 +153,7 @@ print("6. Crawl Odds")
 print("─" * 40)
 
 if leagues:
-    test_lid = find_main_league(leagues, '中超') or leagues[0]['id']
+    test_lid = (find_main_league(leagues, '中超') or leagues[0])['id']
     status, body = http_post(f"{SYS_A}/api/crawl/start", {"league_id": test_lid})
     test("爬取触发", status == 200)
     jid3 = json.loads(body).get("job_id", "") if status == 200 else ""
@@ -185,7 +193,7 @@ try:
                        for lg in conn.get_leagues(enabled=True)}
 
     if leagues:
-        test_lid = find_main_league(leagues, '中超') or leagues[0]['id']
+        test_lid = (find_main_league(leagues, '中超') or leagues[0])['id']
         mr_resp = conn.get_matches(league_id=test_lid, page=1, page_size=50)
         mlist = mr_resp.get('matches') or mr_resp.get('data') or []
         test("联赛有比赛数据可导入", len(mlist) > 0, f"{len(mlist)} 场")
