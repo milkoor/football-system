@@ -545,3 +545,19 @@ async def clear_all_sync_data(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"清除失败: {e}")
+
+
+@router.get("/seasons/stats")
+async def get_season_stats(
+    db: Session = Depends(get_db),
+):
+    """获取赛季维度统计"""
+    from config.models import Match, Season
+    total_seasons = db.query(Season).count()
+    synced_seasons = db.query(Season).filter(
+        Season.id.in_(db.query(Match.league_id).distinct())
+    ).count()
+    return {
+        "total_seasons": total_seasons,
+        "synced_seasons": synced_seasons,
+    }

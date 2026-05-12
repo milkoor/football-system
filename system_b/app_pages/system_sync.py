@@ -31,30 +31,25 @@ def render():
 
     st.subheader("同步狀態")
 
-    # 获取联赛数和赛季标签数
-    league_count = 0
-    season_count = 0
+    # 赛季维度统计
+    total_seasons = 0
+    synced_seasons = 0
     try:
-        leagues = connector.get_leagues(enabled=True)
-        league_count = len(leagues)
-        jobs = connector.get_crawl_jobs(limit=50)
-        for j in jobs:
-            if j.get('job_type') == 'batch_sync_schedule' and j.get('status') == 'completed':
-                season_count = j.get('total_matches', 0)
-                break
+        stats = connector.get_season_stats()
+        total_seasons = stats.get('total_seasons', 0)
+        synced_seasons = stats.get('synced_seasons', 0)
     except:
         pass
 
-    col1, col2, col3 = st.columns(3)
-
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
-
     with col2:
-        st.metric("聯賽數", league_count)
-
+        st.metric("聯賽數", len(connector.get_leagues(enabled=True)) if connector else 0)
     with col3:
-        st.metric("賽季標籤數", season_count)
+        st.metric("賽季總數", total_seasons)
+    with col4:
+        st.metric("已同步賽季", synced_seasons, delta=total_seasons - synced_seasons, delta_color="inverse")
 
     st.divider()
 

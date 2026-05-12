@@ -173,6 +173,11 @@ class DataConnector:
         result = self._request("POST", "/api/leagues/batch-sync-seasons")
         return result
 
+    def get_season_stats(self) -> Dict:
+        """获取赛季维度统计（总赛季数、已同步赛季数）"""
+        result = self._request("GET", "/api/seasons/stats")
+        return result
+
     # ============ 结算相关 ============
 
     def auto_settle_match(self, match_id: int) -> Dict:
