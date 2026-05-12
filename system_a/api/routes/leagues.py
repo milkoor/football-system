@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 全局爬虫并发限流 — 最多 3 个同步任务同时爬 titan007
-_sync_semaphore = threading.Semaphore(3)
+# 全局爬虫并发限流 — 最多 6 个同步任务同时爬 titan007（实测 3 太保守）
+_sync_semaphore = threading.Semaphore(6)
 
 
 # ============ Pydantic 模型 ============
@@ -282,7 +282,7 @@ async def sync_seasons_for_league(
         import random as _random
         import time as _time
 
-        # 全局限流：最多 3 个任务同时爬 titan007，超时 10 分钟
+        # 全局限流：最多 6 个任务同时爬 titan007，超时 10 分钟
         if not _sync_semaphore.acquire(timeout=600):
             logger.warning(f"同步任务 {job_id} 等待信号量超时，跳过")
             return
