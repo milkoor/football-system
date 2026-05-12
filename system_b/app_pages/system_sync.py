@@ -4,17 +4,17 @@
 - 直接呼叫系統A的API，從網站抓取聯賽列表並儲存到資料庫
 - 同步指定聯賽的賽季賽程
 - 顯示同步進度和結果
+- 自動同步設定與狀態展示
 """
 
 import streamlit as st
 import time
+import random
 import logging
 
 from core.config_store import get_store
 from modules.data_connector import get_connector
-from modules.data_connector import DataConnector
 
-# 配置日志
 logger = logging.getLogger(__name__)
 
 
@@ -22,11 +22,14 @@ def render():
     st.title("🔄 系統同步")
     st.caption("呼叫系統A從網站抓取聯賽和賽季賽程")
 
-    # 初始化
     store = get_store()
     connector = get_connector()
 
-    # ============ 同步狀態 ============
+    if "sync_jobs" not in st.session_state:
+        st.session_state.sync_jobs = []
+    if "sync_in_progress" not in st.session_state:
+        st.session_state.sync_in_progress = False
+
     st.subheader("同步狀態")
 
     col1, col2, col3 = st.columns(3)
@@ -52,7 +55,50 @@ def render():
 
     st.divider()
 
-    # ============ 快速操作 ============
+    # ============ 自動同步設定 ============
+    with st.expander("⏰ 自動同步設定", expanded=False):
+        col1, col2, col3 = st.columns([1, 1, 1])
+
+        with col1:
+            auto_enabled = st.checkbox(
+                "啟用自動同步",
+                value=st.session_state.get("auto_sync_enabled", True),
+                help="啟用後將定時自動同步關注聯賽的賽程和賠率"
+            )
+            st.session_state.auto_sync_enabled = auto_enabled
+
+        with col2:
+            interval_hours = st.number_input(
+                "同步間隔（小時）",
+                min_value=1,
+                max_value=168,
+                value=st.session_state.get("auto_sync_interval", 24),
+                help="每隔多少小時自動執行一次同步"
+            )
+            st.session_state.auto_sync_interval = interval_hours
+
+        with col3:
+            st.caption("當前狀態")
+            status_text = "🟢 運行中" if st.session_state.get("auto_sync_enabled", True) else "🔴 已停用"
+            st.metric("自動同步", status_text)
+            st.caption(f"間隔: {st.session_state.get('auto_sync_interval', 24)} 小時")
+            if st.button("🔄 立即執行自動同步", type="secondary"):
+                try:
+                    from modules.auto_sync import SyncScheduler
+                    from modules.follow_list import get_follow_manager
+                    from config.settings import get_settings
+                    sched = SyncScheduler(
+                        connector=connector,
+                        follow_manager=get_follow_manager(),
+                        settings=get_settings()
+                    )
+                    sched.run_sync_job()
+                    st.success("✅ 自動同步任務已執行完成")
+                except Exception as e:
+                    st.error(f"❌ 執行自動同步失敗: {e}")
+
+    st.divider()
+
     st.subheader("快速操作")
 
     col_clear, col_sync_all = st.columns(2)
@@ -70,39 +116,124 @@ def render():
                         st.error(f"❌ 清除失敗: {e}")
 
     with col_sync_all:
-        if st.button("🔄 一键同步所有联赛数据", type="primary"):
-            with st.spinner("正在同步所有联赛数据..."):
+        sync_disabled = st.session_state.sync_in_progress
+        help_text = "同步正在進行中，請等待完成" if sync_disabled else None
+        if st.button(
+            "🔄 一键同步所有联赛数据",
+            type="primary",
+            disabled=sync_disabled,
+            help=help_text
+        ):
+            try:
+                with st.spinner("步驟 1/3: 同步聯賽列表..."):
+                    connector.sync_leagues_from_site()
+                    time.sleep(1)
+                st.success("✅ 联赛列表同步完成")
+
+                leagues = connector.get_leagues(enabled=True)
+                total = len(leagues)
+
+                st.write(f"步驟 2/3: 觸發 {total} 個聯賽的賽季同步...")
+                job_records = []
+                for i, league in enumerate(leagues):
+                    name = league.get('league_name_tw', league.get('league_name_zh', ''))
+                    try:
+                        result = connector.sync_seasons_for_league(league['id'])
+                        jid = result.get('job_id', 'unknown')
+                        job_records.append({
+                            'league_name': name,
+                            'job_id': jid,
+                            'status': 'triggered'
+                        })
+                        st.write(f"  ✅ ({i+1}/{total}) {name} — 任務 {jid}")
+                    except Exception as e:
+                        job_records.append({
+                            'league_name': name,
+                            'job_id': None,
+                            'status': 'failed',
+                            'error': str(e)
+                        })
+                        st.warning(f"  ⚠️ ({i+1}/{total}) {name}: {str(e)}")
+
+                    if i < total - 1:
+                        delay = random.uniform(1.5, 3.0)
+                        time.sleep(delay)
+
+                st.session_state.sync_jobs = job_records
+                st.session_state.sync_in_progress = True
+
+                st.success(f"🎉 已觸發 {len(job_records)} 個聯賽的同步任務")
+                st.info("💡 同步任務在後台非同步執行，可以切換到其他頁面，返回此頁面可查看進度")
+                st.rerun()
+            except Exception as e:
+                st.error(f"同步流程失敗: {e}")
+
+    # ============ 同步進度（跨頁面持久化） ============
+    if st.session_state.sync_in_progress and st.session_state.sync_jobs:
+        st.divider()
+        st.subheader("📊 同步進度")
+
+        updated = []
+        running = 0
+        completed = 0
+        failed = 0
+        total = 0
+
+        for job in st.session_state.sync_jobs:
+            status = job.get('status', 'unknown')
+            if job.get('job_id') and status in ('triggered', 'running'):
                 try:
-                    # 1. 同步联赛列表
-                    st.write("步骤 1/2: 同步联赛列表...")
-                    league_result = connector.sync_leagues_from_site()
-                    time.sleep(2)
-                    st.success("✅ 联赛列表同步完成")
+                    detail = connector.get_crawl_job(job['job_id'])
+                    if detail:
+                        status = detail.get('status', status)
+                        job['status'] = status
+                except Exception:
+                    pass
 
-                    # 2. 同步所有联赛的赛季赛程
-                    st.write("步骤 2/2: 同步所有联赛的赛季赛程...")
-                    leagues = connector.get_leagues(enabled=True)
-                    success_count = 0
-                    fail_count = 0
+            if status == 'completed':
+                completed += 1
+            elif status in ('running', 'triggered', 'pending'):
+                running += 1
+            elif status == 'failed':
+                failed += 1
+            else:
+                total += 1
+            updated.append(job)
 
-                    for league in leagues:
-                        try:
-                            result = connector.sync_seasons_for_league(league['id'])
-                            success_count += 1
-                            st.write(f"✅ {league.get('league_name_tw', league.get('league_name_zh', ''))}")
-                        except Exception as e:
-                            fail_count += 1
-                            st.warning(f"⚠️ {league.get('league_name_tw', league.get('league_name_zh', ''))}: {str(e)}")
+        st.session_state.sync_jobs = updated
 
-                    st.success(f"🎉 一键同步完成! 成功: {success_count}, 失败: {fail_count}")
-                    st.info("请前往「数据导入」页面继续后续流程")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"同步流程失敗: {e}")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("總計", len(updated))
+        with c2:
+            st.metric("✅ 完成", completed)
+        with c3:
+            st.metric("⏳ 執行中", running)
+        with c4:
+            st.metric("❌ 失敗", failed)
+
+        with st.expander("查看各聯賽狀態", expanded=True):
+            for job in st.session_state.sync_jobs:
+                s = job.get('status', 'unknown')
+                icons = {'completed': '✅', 'running': '⏳', 'triggered': '⏳',
+                         'failed': '❌', 'pending': '⏳'}
+                icon = icons.get(s, '❓')
+                st.write(f"{icon} {job['league_name']} — {s}")
+
+        all_done = (running == 0)
+        if all_done:
+            st.success(f"🎉 所有聯賽同步完成！成功 {completed}，失敗 {failed}")
+            st.session_state.sync_in_progress = False
+            st.info("请前往「数据导入」页面继续后续流程")
+            if st.button("🔄 刷新頁面"):
+                st.rerun()
+        else:
+            st.info("⏳ 部分聯賽仍在同步中，每 5 秒自動刷新...")
+            time.sleep(5)
+            st.rerun()
 
     st.divider()
 
-    # ============ 联赛信息 ============
     st.subheader("联赛信息")
     try:
         leagues = connector.get_leagues(enabled=True)
@@ -118,7 +249,6 @@ def render():
 
     st.divider()
 
-    # ============ 同步賽季賽程 ============
     st.subheader("同步賽季賽程")
 
     selected_league = None
@@ -154,7 +284,6 @@ def render():
 
         st.divider()
 
-        # 顯示比賽數量
         try:
             matches_result = connector.get_matches(
                 league_id=selected_league['id'],
