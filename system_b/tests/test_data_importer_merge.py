@@ -25,98 +25,59 @@ class TestDataImporterMerge:
         self.tree = ast.parse(self.content)
 
     def test_has_download_odds_section(self):
-        """测试是否存在“下载赔率”相关的中文字符串"""
-        download_odds_keywords = [
-            "下载赔率",
-            "一键下载所有关注赔率",
-            "待爬取赔率"
+        """测试是否存在完整同步相关的中文字符串"""
+        sync_keywords = [
+            "完整同步",
+            "赛程",
         ]
 
         found_keywords = []
-        for keyword in download_odds_keywords:
+        for keyword in sync_keywords:
             if keyword in self.content:
                 found_keywords.append(keyword)
 
         # 至少应该找到一些关键字
-        assert len(found_keywords) > 0, f"未找到下载赔率相关关键字，找到的: {found_keywords}"
-        print(f"✓ 找到下载赔率相关关键字: {found_keywords}")
+        assert len(found_keywords) > 0, f"未找到完整同步相关关键字，找到的: {found_keywords}"
+        print(f"OK 找到完整同步相关关键字: {found_keywords}")
 
     def test_has_system_a_mapper_import(self):
-        """测试是否导入了 system_a_mapper 的相关函数"""
-        # 检查 import 语句
+        """测试是否导入了 system_a_mapper 的 import_matches_to_system_b 函数"""
         has_import = False
-        has_sync_league = False
-        has_sync_season = False
-
         for node in ast.walk(self.tree):
             if isinstance(node, ast.ImportFrom):
                 if node.module == 'utils.system_a_mapper':
-                    has_import = True
                     for name in node.names:
-                        if name.name == 'sync_league_to_system_b':
-                            has_sync_league = True
-                        if name.name == 'sync_season_to_system_b':
-                            has_sync_season = True
-
-        assert has_import, "未找到 'from utils.system_a_mapper import ...'"
-        assert has_sync_league, "未导入 sync_league_to_system_b"
-        assert has_sync_season, "未导入 sync_season_to_system_b"
-        print("✓ 已正确导入 system_a_mapper 相关函数")
+                        if name.name == 'import_matches_to_system_b':
+                            has_import = True
+        assert has_import, "未找到 'from utils.system_a_mapper import import_matches_to_system_b'"
 
     def test_has_settlement_calculator_call(self):
-        """测试是否有 SettlementCalculator 的调用"""
-        # 检查 SettlementCalculator 的导入或使用
-        has_settlement_import = False
+        """SettlementCalculator 调用已下沉到 utils.system_a_mapper，data_importer.py 不再直接使用"""
+        # 该测试保留为占位，验证不再有直接的 SettlementCalculator 引用
         has_settlement_call = False
-
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.ImportFrom):
-                # 检查 from core.settlement import SettlementCalculator
-                if node.module == 'etl.settlement':
-                    for name in node.names:
-                        if name.name == 'SettlementCalculator':
-                            has_settlement_import = True
-            elif isinstance(node, ast.Import):
-                # 检查 import etl.settlement
-                for name in node.names:
-                    if 'settlement' in name.name:
-                        has_settlement_import = True
-            elif isinstance(node, ast.Call):
-                # 检查 SettlementCalculator() 的调用
+            if isinstance(node, ast.Call):
                 if hasattr(node.func, 'id') and node.func.id == 'SettlementCalculator':
                     has_settlement_call = True
-                elif hasattr(node.func, 'attr') and node.func.attr == 'SettlementCalculator':
-                    has_settlement_call = True
-
-        # 至少应该有导入或调用
-        assert has_settlement_import or has_settlement_call, "未找到 SettlementCalculator 的使用"
-        print("✓ 已包含 SettlementCalculator 的使用")
+        assert not has_settlement_call, "SettlementCalculator 已下沉到 utils.system_a_mapper，data_importer 不应直接调用"
 
     def test_has_sync_league_to_system_b_call(self):
-        """测试是否有 sync_league_to_system_b 的调用"""
+        """sync_league_to_system_b 调用已下沉到 utils.system_a_mapper.import_matches_to_system_b"""
         has_call = False
-
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 if hasattr(node.func, 'id') and node.func.id == 'sync_league_to_system_b':
                     has_call = True
-                elif hasattr(node.func, 'attr') and node.func.attr == 'sync_league_to_system_b':
-                    has_call = True
-
-        assert has_call, "未找到 sync_league_to_system_b 的调用"
-        print("✓ 已包含 sync_league_to_system_b 调用")
+        assert not has_call, "sync_league_to_system_b 已下沉，data_importer 不应直接调用"
 
     def test_has_upsert_match_records_call(self):
-        """测试是否有 upsert_match_records 的调用（创建 MatchRecord 并保存）"""
+        """upsert_match_records 调用已下沉到 utils.system_a_mapper.import_matches_to_system_b"""
         has_call = False
-
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 if hasattr(node.func, 'attr') and node.func.attr == 'upsert_match_records':
                     has_call = True
-
-        assert has_call, "未找到 upsert_match_records 的调用"
-        print("✓ 已包含 upsert_match_records 调用")
+        assert not has_call, "upsert_match_records 已下沉，data_importer 不应直接调用"
 
 
 if __name__ == "__main__":

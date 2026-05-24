@@ -3,11 +3,10 @@
 import uuid
 import re
 import logging
-import re
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from config.database import get_db
@@ -16,6 +15,19 @@ from config.models import CrawlJob, LeagueIndex
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+# 爬虫任务状态常量
+CRAWL_STATUS_PENDING = "pending"
+CRAWL_STATUS_RUNNING = "running"
+CRAWL_STATUS_COMPLETED = "completed"
+CRAWL_STATUS_FAILED = "failed"
+CRAWL_STATUS_CANCELLED = "cancelled"
+
+# 比赛爬取状态常量
+MATCH_CRAWL_STATUS_PENDING = "pending"
+MATCH_CRAWL_STATUS_COMPLETED = "completed"
+MATCH_CRAWL_STATUS_NO_DATA = "nodata"
+MATCH_CRAWL_STATUS_ERROR = "error"
 
 
 # ============ Pydantic 模型 ============
@@ -43,112 +55,168 @@ class CrawlJobResponse(BaseModel):
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 内部函数 ============
 
-def run_crawl_task(job_id: int, db: Session):
+def run_crawl_task(job_id: int):
     """实际执行爬虫任务的函数"""
-    # 注意：这里需要实际调用爬虫逻辑
-    # 由于在后台任务中，需要重新获取数据库会话
+    # 注意：后台任务不能使用请求生命周期的db会话，必须自己创建新的会话
     import json
     from config.database import SessionLocal
     from scraper.odds_crawler import OddsCrawler
 
     db = SessionLocal()
     try:
+        # 原子更新，避免TOCTOU竞态条件
+        updated = db.query(CrawlJob).filter(CrawlJob.id == job_id).update({
+            "status": "running",
+            "started_at": datetime.utcnow()
+        })
+        if not updated:
+            return
+
+        # 加载任务对象（update返回行数而非对象）
         job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
         if not job:
             return
 
-        job.status = "running"
-        job.started_at = datetime.utcnow()
-        db.commit()
-
         # 创建爬虫实例
         crawler = OddsCrawler()
 
-        # 确定要爬取的比赛 ID 列表（智能过滤：跳过已完成的比赛）
+        # 确定要爬取的比赛 ID 列表（仅跳过已经爬取过的）
         match_ids = []
         skipped_completed = 0
 
+        from config.models import Match
         if job.match_ids:
             # 如果任务指定了 match_ids（从 JSON 字符串解析）
             try:
-                from config.models import Match
                 requested_ids = json.loads(job.match_ids)
 
-                # 过滤已完成的比赛
-                for match_id in requested_ids:
-                    match = db.query(Match).filter(Match.match_id == match_id).first()
-                    if match and match.score_ft and re.search("\\d+-\\d+", match.score_ft.strip()):
-                        logger.info(f"跳过已完成的比赛: {match_id}")
-                        skipped_completed += 1
-                    else:
-                        match_ids.append(match_id)
+                # 批量查询比赛状态，N+1优化为1次查询
+                matches = db.query(Match.match_id, Match.crawl_status).filter(
+                    Match.match_id.in_(requested_ids)
+                ).all()
+
+                completed_ids = {m.match_id for m in matches if m.crawl_status == "completed"}
+                match_ids = [mid for mid in requested_ids if mid not in completed_ids]
+                skipped_completed = len(completed_ids)
+
+                if skipped_completed:
+                    logger.info(f"已跳过 {skipped_completed} 场已爬取的比赛")
 
             except json.JSONDecodeError:
                 logger.error(f"解析 match_ids 失败: {job.match_ids}")
                 match_ids = []
         elif job.league_id:
             # 否则从数据库获取该联赛的比赛
-            from config.models import Match
             q = db.query(Match).filter(Match.league_id == job.league_id)
             if job.season_label:
                 q = q.filter(Match.season == job.season_label)
-            matches = q.all()
 
-            # 过滤：已有比分(已完成)的比赛直接标记完成，不爬取
-            for match in matches:
-                if match.score_ft and re.search(r'\d+-\d+', match.score_ft.strip()):
-                    match.crawl_status = "completed"
-                    skipped_completed += 1
-                else:
-                    match_ids.append(match.match_id)
+            # 只爬取未完成的比赛（completed 表示已爬取且完赛）
+            from sqlalchemy import or_
+            match_ids = [
+                m.match_id for m in
+                q.filter(
+                    or_(
+                        Match.crawl_status.is_(None),
+                        Match.crawl_status != MATCH_CRAWL_STATUS_COMPLETED
+                    )
+                ).with_entities(Match.match_id).all()
+            ]
+            total_matches = q.count()
+            skipped_completed = total_matches - len(match_ids)
+
             if skipped_completed:
-                db.commit()
-                logger.info(f"已跳过 {skipped_completed} 场已完成比赛(已有比分)")
+                logger.info(f"已跳过 {skipped_completed} 场已爬取的比赛")
 
-        logger.info(f"准备爬取 {len(match_ids)} 场比赛")
+        total = len(match_ids)
+        # 更新实际需爬取总数（start_crawl中预计算的包含了已完成的）
+        job.total_matches = total
+        db.commit()
 
-        # 爬取每场比赛的赔率数据
+        if total == 0:
+            logger.info("无需爬取新比赛，全部已完成")
+            job.status = CRAWL_STATUS_COMPLETED
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            return
+
+        logger.info(f"准备爬取 {total} 场比赛的赔率")
+
+        # 爬取每场比赛的赔率数据（并发版本）
         completed = 0
         failed = 0
         skipped = 0
-        for match_id in match_ids:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        # Thread-local storage for crawler instances (each thread gets its own)
+        thread_local = threading.local()
+
+        def get_crawler():
+            """Get or create a crawler instance for the current thread"""
+            if not hasattr(thread_local, "crawler"):
+                thread_local.crawler = OddsCrawler()
+            return thread_local.crawler
+
+        def crawl_one(match_id: int) -> tuple[bool, int]:
+            """Crawl a single match, return (success, match_id)"""
             try:
+                crawler = get_crawler()
                 result = crawler.crawl_and_save(match_id, odds_types=["AH"])
-                if result.get("AH", 0) > 0:
-                    completed += 1
-                else:
-                    # 如果返回 0 可能是比赛已完成被跳过
-                    # 检查是否真的是已完成
-                    from scraper.odds_crawler import OddsCrawler
-                    temp_crawler = OddsCrawler()
-                    if temp_crawler.is_match_completed(match_id):
-                        skipped += 1
-                    else:
-                        failed += 1
+                success = result.get("AH", 0) > 0
+                return success, match_id
             except Exception as e:
                 logger.error(f"爬取比赛 {match_id} 失败: {e}")
-                failed += 1
+                return False, match_id
 
-        logger.info(f"任务完成: 成功 {completed}, 失败 {failed}, 已完成比赛跳过 {skipped}")
+        # Use 3 concurrent workers by default (adjust based on target website tolerance)
+        max_workers = 3
+        logger.info(f"开始并发爬取，最大并发数: {max_workers}")
 
-        # 更新任务状态
-        job.status = "completed"
-        job.completed_at = datetime.utcnow()
-        job.completed_matches = completed
-        job.failed_matches = failed
-        db.commit()
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all crawl tasks
+            futures = {executor.submit(crawl_one, match_id): match_id for match_id in match_ids}
+
+            # Process results as they complete
+            for idx, future in enumerate(as_completed(futures), 1):
+                success, match_id = future.result()
+                if success:
+                    completed += 1
+                else:
+                    failed += 1
+
+                # 每爬取10场更新一次进度，或者最后一场更新
+                if idx % 10 == 0 or idx == total:
+                    # 更新任务进度
+                    current_job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                    if current_job:
+                        current_job.completed_matches = completed
+                        current_job.failed_matches = failed
+                        db.commit()
+                    logger.info(f"爬取进度: {idx}/{total}, 成功 {completed}, 失败 {failed}")
+
+        logger.info(f"任务完成: 成功 {completed}, 失败 {failed}, 已爬取跳过 {skipped_completed}")
+
+        # 最终更新任务状态
+        job = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+        if job:
+            job.status = CRAWL_STATUS_COMPLETED
+            job.completed_at = datetime.utcnow()
+            job.completed_matches = completed
+            job.failed_matches = failed
+            db.commit()
 
     except Exception as e:
-        job.status = "failed"
-        job.error_message = str(e)
-        job.completed_at = datetime.utcnow()
-        db.commit()
+        if 'job' in locals() and job:
+            job.status = CRAWL_STATUS_FAILED
+            job.error_message = str(e)
+            job.completed_at = datetime.utcnow()
+            db.commit()
     finally:
         db.close()
 
@@ -226,7 +294,7 @@ async def start_crawl(
         league_id=league_id,
         season_label=season_label,
         match_ids=match_ids_json,
-        status="pending",
+        status=CRAWL_STATUS_PENDING,
         total_matches=0,
         completed_matches=0,
         failed_matches=0,
@@ -235,23 +303,13 @@ async def start_crawl(
     db.commit()
     db.refresh(job)
 
-    # 计算总比赛数
-    if request.match_ids:
-        # 如果指定了比赛 ID 列表
-        job.total_matches = len(request.match_ids)
-    elif league_id:
-        # 否则获取该联赛的比赛数量
-        from config.models import Match
-        q = db.query(Match).filter(Match.league_id == league_id)
-        if season_label:
-            q = q.filter(Match.season == season_label)
-        match_count = q.count()
-        job.total_matches = match_count
+    # 实际需爬取数量由背景任务 run_crawl_task 在过滤已完成比赛后计算
+    job.total_matches = 0
 
     db.commit()
 
-    # 启动后台任务
-    background_tasks.add_task(run_crawl_task, job.id, db)
+    # 启动后台任务 - 不要传递当前请求的db会话，后台任务会自己创建新的会话
+    background_tasks.add_task(run_crawl_task, job.id)
 
     return job
 
@@ -269,7 +327,7 @@ async def stop_crawl(
     if job.status not in ["pending", "running"]:
         raise HTTPException(status_code=400, detail="任务无法停止")
 
-    job.status = "cancelled"
+    job.status = CRAWL_STATUS_CANCELLED
     job.completed_at = datetime.utcnow()
     db.commit()
 

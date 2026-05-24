@@ -120,7 +120,7 @@ class AutoSettlementCalculator:
 
         Returns:
             {
-                "settlement": "主赢" / "主赢半" / "主输半" / "主输" / "客赢" / "客赢半" / "客输半" / "客输" / "走",
+                "settlement": "主赢" / "主贏半" / "主輸半" / "主输" / "客赢" / "客贏半" / "客輸半" / "客输" / "走",
                 "settlement_value": 1.0 / 0.5 / 0.0,
                 "settlement_direction": "win" / "lose" / "",
                 "home_away_direction": "home" / "away" / "",
@@ -159,12 +159,12 @@ class AutoSettlementCalculator:
         # 比较净胜球与盘口
         if net_goals > handicap:
             # 赢
-            result = f"{direction_prefix}赢"
+            result = f"{direction_prefix}贏"
             direction = "win"
             value = 1.0
         elif net_goals < handicap:
             # 输
-            result = f"{direction_prefix}输"
+            result = f"{direction_prefix}輸"
             direction = "lose"
             value = 1.0
         else:
@@ -173,17 +173,17 @@ class AutoSettlementCalculator:
             direction = ""
             value = 0.0
 
-        # 处理半赢半输（净胜球与盘口差0.25的情况）
+        # 处理半贏半输（净胜球与盘口差0.25的情况）
         diff = abs(net_goals - handicap)
         if diff == 0.25:
             if net_goals > handicap:
                 # 半赢
-                result = f"{direction_prefix}赢半"
+                result = f"{direction_prefix}贏半"
                 direction = "win"
                 value = 0.5
             else:
                 # 半输
-                result = f"{direction_prefix}输半"
+                result = f"{direction_prefix}輸半"
                 direction = "lose"
                 value = 0.5
         elif diff == 0.5:
@@ -207,7 +207,7 @@ class AutoSettlementCalculator:
 
         Returns:
             {
-                "settlement": "大赢" / "大赢半" / "大输半" / "大输" / "小赢" / "小赢半" / "小输半" / "小输" / "走",
+                "settlement": "大赢" / "大贏半" / "大輸半" / "大输" / "小赢" / "小贏半" / "小輸半" / "小输" / "走",
                 "settlement_value": 1.0 / 0.5 / 0.0,
                 "settlement_direction": "win" / "lose" / "",
                 "home_away_direction": "home" / "away" / "",
@@ -229,11 +229,11 @@ class AutoSettlementCalculator:
 
         # 比较总进球数与盘口
         if total_goals > handicap:
-            result = "大赢"
+            result = "大贏"
             direction = "win"
             value = 1.0
         elif total_goals < handicap:
-            result = "小赢"
+            result = "小贏"
             direction = "win"
             value = 1.0
         else:
@@ -241,24 +241,24 @@ class AutoSettlementCalculator:
             direction = ""
             value = 0.0
 
-        # 处理半赢半输
+        # 处理半贏半输
         diff = abs(total_goals - handicap)
         if diff == 0.25:
             if total_goals > handicap:
-                result = "大赢半"
+                result = "大贏半"
                 direction = "win"
                 value = 0.5
             else:
-                result = "小输半"
+                result = "小輸半"
                 direction = "lose"
                 value = 0.5
         elif diff == 0.5:
             if total_goals > handicap:
-                result = "大赢"
+                result = "大贏"
                 direction = "win"
                 value = 1.0
             else:
-                result = "小赢"
+                result = "小贏"
                 direction = "win"
                 value = 1.0
 

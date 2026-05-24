@@ -234,41 +234,6 @@ def render():
         return final_teams
 
 
-    def _render_league_row(lg, role: str, gg_list):
-        """Render one league row with all groups side-by-side."""
-        pool = _get_pool(lg.id)
-        sorted_pool = sorted(pool) if pool else []
-
-        # Build columns: one per group
-        cols = st.columns(len(gg_list))
-
-        for col, gg in zip(cols, gg_list):
-            with col:
-                existing = store.get_league_group_teams(lg.id, gg.id, role)
-                key_prefix = f"grp_{lg.id}_{gg.id}_{role}"
-
-                if sorted_pool:
-                    st.multiselect(
-                        f"{gg.display_name or gg.name}",
-                        options=sorted_pool,
-                        default=sorted([t for t in existing if t in pool]),
-                        key=f"{key_prefix}_ms",
-                        label_visibility="collapsed",
-                    )
-                    extra = [t for t in existing if t not in pool]
-                    manual_default = ", ".join(extra) if extra else ""
-                else:
-                    manual_default = ", ".join(existing)
-
-                st.text_input(
-                    "手動輸入",
-                    value=manual_default,
-                    key=f"{key_prefix}_manual",
-                    label_visibility="collapsed",
-                    placeholder="手動輸入（逗號分隔）",
-                )
-
-
     # Role tabs
     role_tab_current, role_tab_previous = st.tabs(["📅 本賽季 (current)", "📅 上賽季 (previous)"])
 

@@ -12,6 +12,8 @@ import streamlit as st
 
 from core.config_store import get_store
 from core.pipeline import ETLPipeline
+from modules.data_connector import get_connector
+from utils.system_a_mapper import get_league_display_name, find_league_by_name_fuzzy
 
 def render():
     store = get_store()
@@ -165,19 +167,32 @@ def render():
 
     global_groups = store.list_global_groups()
     has_groups = len(global_groups) > 0
-    has_assignment_teams = any(
-        store.get_all_league_group_teams(lg.id)
-        for lg, _, _, _, _ in ready_leagues
-    )
+
+    # 逐個聯賽檢查隊伍配置
+    configured_leagues: set[int] = set()
+    missing_config_leagues: list = []
+    for lg, _, _, _, _ in ready_leagues:
+        if any(
+            store.get_league_group_teams(lg.id, gg.id, "current")
+            for gg in global_groups
+        ):
+            configured_leagues.add(lg.id)
+        else:
+            missing_config_leagues.append(lg)
 
     if not has_groups:
         st.warning("尚未建立任何全域分組。請先至「隊伍分組」頁面新增分組（如 Top、Weak）。")
-    if has_groups and not has_assignment_teams:
-        st.warning("尚未為任何聯賽配置分組隊伍。請先至「隊伍分組」頁面設定各聯賽的隊伍。")
+    if has_groups and missing_config_leagues:
+        names = "、".join(lg.name_zh or lg.code for lg in missing_config_leagues)
+        st.warning(f"以下聯賽尚未配置分組隊伍：{names}。請使用下方按鈕自動配置，或至「隊伍分組」頁面手動設定。")
 
-    etl_ready = has_groups and has_assignment_teams
+    # 快速配置按鈕：有分組 + 仍有聯賽缺配置時顯示
+    show_quick_config = has_groups and len(missing_config_leagues) > 0
 
-    if not etl_ready:
+    # ETL 可執行條件：有分組 + 至少有一個聯賽已配置隊伍
+    etl_ready = has_groups and len(configured_leagues) > 0
+
+    if show_quick_config:
         if st.button("⚡ 快速配置（自動建立分組並分配全部隊伍）", type="secondary", key="btn_auto_setup"):
             with st.spinner("正在自動配置..."):
                 if not has_groups:
@@ -190,39 +205,46 @@ def render():
                 conn = get_connector()
                 sa_leagues = {al['id']: al for al in conn.get_leagues(enabled=True)}
 
-                for lg, curr_si, _, _, _ in ready_leagues:
+                for lg in missing_config_leagues:
                     # 从 league.code 提取 System A ID，如果失效则按名称查找
                     sa_id = int(lg.code.replace("LEAGUE_", ""))
                     if sa_id not in sa_leagues:
                         # ID 已过期，按 league.name_zh 在 System A 中查找
-                        for al_id, al in sa_leagues.items():
-                            aname = al.get('league_name_tw', '') or al.get('league_name_zh', '')
-                            if lg.name_zh in aname or aname in lg.name_zh:
-                                sa_id = al_id
-                                break
+                        found = find_league_by_name_fuzzy(list(sa_leagues.values()), lg.name_zh)
+                        if found:
+                            sa_id = found['id']
                     sa_league = sa_leagues.get(sa_id)
                     if not sa_league:
                         continue
-                    for gg in global_groups:
-                        existing = store.get_league_group_teams(lg.id, gg.id, "current")
-                        if not existing:
-                            try:
-                                mr = conn.get_matches(league_id=sa_id, page=1, page_size=200)
-                                all_matches = mr.get('matches') or mr.get('data') or []
-                                all_teams = set()
-                                for m in all_matches:
-                                    if m.get('home_team'): all_teams.add(m['home_team'])
-                                    if m.get('away_team'): all_teams.add(m['away_team'])
-                                if all_teams:
-                                    store.set_league_group_teams(lg.id, gg.id, "current", list(all_teams))
-                            except:
-                                pass
+                    # 获取该联赛全部队伍，按分组数均分
+                    try:
+                        mr = conn.get_matches(league_id=sa_id, page=1, page_size=200)
+                        all_matches = mr.get('matches') or mr.get('data') or []
+                        all_teams = sorted(set(
+                            t for m in all_matches
+                            for t in (m.get('home_team'), m.get('away_team'))
+                            if t
+                        ))
+                    except Exception:
+                        all_teams = []
 
-                has_assignment_teams = any(
-                    store.get_all_league_group_teams(lg.id)
-                    for lg, _, _, _, _ in ready_leagues
-                )
-                etl_ready = has_groups and has_assignment_teams
+                    if all_teams:
+                        chunk_size = max(1, len(all_teams) // len(global_groups))
+                        for idx, gg in enumerate(global_groups):
+                            start = idx * chunk_size
+                            end = None if idx == len(global_groups) - 1 else (idx + 1) * chunk_size
+                            chunk = all_teams[start:end]
+                            store.set_league_group_teams(lg.id, gg.id, "current", chunk)
+                            store.set_league_group_teams(lg.id, gg.id, "previous", chunk)
+
+                configured_leagues = {
+                    lg.id for lg, _, _, _, _ in ready_leagues
+                    if any(
+                        store.get_league_group_teams(lg.id, gg.id, "current")
+                        for gg in global_groups
+                    )
+                }
+                etl_ready = has_groups and len(configured_leagues) > 0
                 st.success("✅ 自動配置完成，現在可以執行 ETL！")
                 st.rerun()
 

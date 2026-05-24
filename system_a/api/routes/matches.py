@@ -3,7 +3,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from config.database import get_db
@@ -21,6 +21,7 @@ class MatchResponse(BaseModel):
     league_name: Optional[str] = None
     group_name: Optional[str] = None
     round_name: Optional[str] = None
+    season: Optional[str] = None
     match_time: Optional[datetime] = None
     home_team: Optional[str] = None
     away_team: Optional[str] = None
@@ -34,8 +35,7 @@ class MatchResponse(BaseModel):
     crawl_status: str = "pending"
     retry_count: Optional[int] = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MatchListResponse(BaseModel):

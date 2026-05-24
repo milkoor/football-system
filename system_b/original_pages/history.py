@@ -114,6 +114,11 @@ def render():
         st.markdown("---")
         st.info("💡 如需在看板中檢視此版本，請至「Report 看板」頁面選擇對應的 Run。")
 
+        if st.button("🔙 返回列表"):
+            del st.session_state["history_run_id"]
+            st.rerun()
+        st.stop()
+
 
 if __name__ == "__main__":
     render()

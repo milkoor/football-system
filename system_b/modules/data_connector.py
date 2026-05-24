@@ -33,6 +33,14 @@ class DataConnector:
             logger.error(f"API 请求失败: {url}, error={e}")
             raise
 
+    def ping(self) -> bool:
+        """检查 System A 连通性"""
+        try:
+            self._request("GET", "/health")
+            return True
+        except Exception:
+            return False
+
     def get_leagues(self, **kwargs) -> List[Dict]:
         """获取联赛列表"""
         params = {k: v for k, v in kwargs.items() if v is not None}
@@ -83,29 +91,6 @@ class DataConnector:
 
         result = self._request("GET", f"/api/matches/{match_id}/odds", params=params)
         return result.get("movements", [])
-
-    def get_x_values(self, **kwargs) -> List[Dict]:
-        """获取 X 值计算结果"""
-        params = {k: v for k, v in kwargs.items() if v is not None}
-        result = self._request("GET", "/api/x-values", params=params)
-        return result
-
-    def save_x_value(self, x_result: Dict) -> Dict:
-        """保存 X 值计算结果"""
-        data = {
-            "match_id": x_result.get("match_id"),
-            "home_team": x_result.get("home_team"),
-            "away_team": x_result.get("away_team"),
-            "score": x_result.get("score"),
-            "target_team": x_result.get("target_team"),
-            "has_star_mark": x_result.get("has_star_mark"),
-            "x_value": x_result.get("x_value"),
-            "status": x_result.get("status", "success"),
-            "calculation_note": x_result.get("calculation_note"),
-            "movement_url": x_result.get("movement_url"),
-        }
-        result = self._request("POST", "/api/x-values", json=data)
-        return result
 
     def trigger_crawl(
         self,
@@ -238,15 +223,23 @@ class DataConnector:
 
         for match in matches:
             match_id = match["match_id"]
-            # 已有比分的已完成比赛，跳过X值计算
-            if re.search(r'\d+-\d+', match.get('score_ft', '').strip()):
+            try:
+                odds = self.get_match_odds(match_id)
+            except Exception as e:
+                logger.error(f"获取比赛 {match_id} 的赔率失败: {e}")
+                failed += 1
+                continue
+
+            # 检查是否有85分钟后的赔率数据 → 比赛已完成，跳过X值计算
+            if self._has_completed_odds(odds):
                 skipped += 1
                 continue
+
+            # 使用已获取的赔率计算X值，避免二次请求
             try:
-                x_result = calculator.calculate_from_match(match_id)
+                x_result = calculator.calculate_from_odds_data(match_id, odds)
 
                 if x_result.get("status") == "success" and x_result.get("x_value") is not None:
-                    self.save_x_value(x_result)
                     completed += 1
                 else:
                     failed += 1
@@ -260,6 +253,144 @@ class DataConnector:
             "skipped": skipped,
             "failed": failed
         }
+
+    @staticmethod
+    def _has_completed_odds(movements: List[Dict]) -> bool:
+        """检查赔率数据中是否有85分钟后的记录（比赛已完成）"""
+        for m in movements:
+            elapsed = m.get('elapsed_time')
+            if elapsed is not None:
+                try:
+                    if int(elapsed) >= 85:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+        return False
+
+    _sub_league_cache: Dict[tuple, Dict[str, str]] = {}  # {(titan007_league_id, season): name_map}
+
+    def get_sub_league_names(self, league_id: int, season: str) -> Dict[str, str]:
+        """获取指定联赛赛季的子联赛/组名称映射
+        返回: {inst_id: group_name (繁体中文)}
+        """
+        cache_key = (league_id, season)
+        if cache_key in self._sub_league_cache:
+            return self._sub_league_cache[cache_key]
+
+        import re
+        import json
+
+        info_url = "https://info.titan007.com"
+        titan_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://zq.titan007.com/big/",
+            "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+
+        def _parse_arr_sub_league(html: str) -> Dict[str, str]:
+            """Parse arrSubLeague from JS file content"""
+            sub_m = re.search(r'var\s+arrSubLeague\s*=\s*(\[.*?\]);', html, re.DOTALL)
+            if not sub_m:
+                return {}
+            try:
+                raw = sub_m.group(1).replace("'", '"')
+                sub_list = json.loads(raw)
+                name_map = {}
+                for entry in sub_list:
+                    if isinstance(entry, list) and len(entry) > 3:
+                        inst_id = str(entry[0])
+                        if len(entry) > 2 and entry[2]:
+                            name_tw = entry[2]
+                        elif len(entry) > 1 and entry[1]:
+                            name_tw = entry[1]
+                        else:
+                            name_tw = f"组{inst_id}"
+                        name_map[inst_id] = name_tw
+                # If only 1 entry, this season has no real sub-groups → "全部" only
+                if len(name_map) <= 1:
+                    return {"0": "全部"}
+                # Multiple entries → add "全部" as extra option alongside real groups
+                name_map["0"] = "全部"
+                return name_map
+            except (json.JSONDecodeError, IndexError):
+                return {}
+
+        def _fetch_js(url: str) -> str | None:
+            """Fetch a JS file with browser headers"""
+            try:
+                resp = self.client.get(url, timeout=15, headers=titan_headers)
+                if resp.status_code == 200 and "对不起！你查看的页面不存在" not in resp.text:
+                    return resp.text
+            except Exception:
+                pass
+            return None
+
+        result: Dict[str, str] = {}
+
+        try:
+            # Strategy 1: Try main season JS file
+            html = _fetch_js(f"{info_url}/jsData/matchResult/{season}/s{league_id}.js")
+            if html:
+                result = _parse_arr_sub_league(html)
+
+            # Strategy 2: Try main JS file without season
+            if not result:
+                html = _fetch_js(f"{info_url}/jsData/matchResult/s{league_id}.js")
+                if html:
+                    result = _parse_arr_sub_league(html)
+
+            # Strategy 3: Fetch the season-specific SubLeague page to discover
+            # the correct sub-league instance ID for this season.
+            # Then fetch the sub-league JS file to get arrSubLeague.
+            if not result:
+                try:
+                    # Try season-specific URL first (e.g., SubLeague/2025/25.html)
+                    # Falls back to League page (redirects to current season's SubLeague)
+                    urls_to_try = [
+                        f"https://zq.titan007.com/big/SubLeague/{season}/{league_id}.html",
+                        f"https://zq.titan007.com/big/League/{league_id}.html",
+                    ]
+                    page_html = None
+                    for url in urls_to_try:
+                        resp = self.client.get(url, timeout=15, headers=titan_headers, follow_redirects=True)
+                        if resp.status_code == 200:
+                            page_html = resp.text
+                            break
+
+                    if page_html:
+                        pattern = re.escape("/jsData/matchResult/") + r"[^\"']*?" + re.escape(f"s{league_id}_") + r"(\d+)\.js"
+                        found = re.search(pattern, page_html)
+                        if found:
+                            inst_id = found.group(1)
+                            # Try target season's sub-league JS file
+                            sub_url = f"{info_url}/jsData/matchResult/{season}/s{league_id}_{inst_id}.js"
+                            sub_html = _fetch_js(sub_url)
+                            if sub_html:
+                                result = _parse_arr_sub_league(sub_html)
+                            # Strategy 4: Try alternative season directory formats
+                            # (e.g., JLeague uses "2026" not "2025-2026")
+                            if not result and "-" in season:
+                                alt_season = season.split("-")[1]
+                                for alt in [alt_season, season.split("-")[0]]:
+                                    if alt != season:
+                                        sub_url = f"{info_url}/jsData/matchResult/{alt}/s{league_id}_{inst_id}.js"
+                                        sub_html = _fetch_js(sub_url)
+                                        if sub_html:
+                                            result = _parse_arr_sub_league(sub_html)
+                                            if result:
+                                                break
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(f"获取子联赛名称失败 league_id={league_id}, season={season}: {e}")
+
+        # Cache and return: fallback to "全部" when no data found
+        if not result:
+            result = {"0": "全部"}
+        self._sub_league_cache[cache_key] = result
+        return result
 
     def close(self):
         """关闭连接"""

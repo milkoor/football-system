@@ -42,24 +42,21 @@ class RecordSplitter:
                 team_to_groups.setdefault(team, set()).add(tg.id)
 
         result: dict[int, list[MatchRecord]] = {tg.id: [] for tg in team_groups}
-        all_teams: set[str] = set()
         all_known: set[str] = set(team_to_groups.keys())
+        all_relevant: set[str] = set()
 
         for rec in records:
-            all_teams.add(rec.home_team)
-            all_teams.add(rec.away_team)
-
             matched_gids: set[int] = set()
 
             if match_mode == "target":
-                # HDP: only match on target_team
                 if rec.target_team:
+                    all_relevant.add(rec.target_team)
                     gids = team_to_groups.get(rec.target_team)
                     if gids:
                         matched_gids.update(gids)
             else:
-                # OU (participant): match on home OR away
                 for team in (rec.home_team, rec.away_team):
+                    all_relevant.add(team)
                     gids = team_to_groups.get(team)
                     if gids:
                         matched_gids.update(gids)
@@ -67,7 +64,7 @@ class RecordSplitter:
             for gid in matched_gids:
                 result[gid].append(rec)
 
-        unmatched = all_teams - all_known
+        unmatched = all_relevant - all_known
 
         for tg in team_groups:
             logger.info(

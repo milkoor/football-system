@@ -1,5 +1,7 @@
 # 代码审查报告 — 2026-05-11
 
+> **v1.2.0 更新说明**: 本报告所列问题已于 2026-05-24 版本处理：`ConfigStore.get_global_group()` 公共方法已添加（问题2）、验证增强（问题3）、Excel 导出加载状态（问题4）均已完成。详见 CHANGELOG。
+
 ## 审查范围
 
 本次审查覆盖 `system_b` 与 `mftitan` 参考仓库的代码对比，以及最近一次提交中对 `dashboard.py`、`settings.py`、`default_params.json`、`views/dashboard.py` 的改动。

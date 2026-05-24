@@ -90,6 +90,7 @@ class MatchRecord:
     settlement_direction: str = ''   # 'win' or 'lose'
     home_away_direction: str = ''    # 'home' or 'away'（主客場方向）
     target_team: str = ''            # 被處理的隊伍名稱
+    group: str = ''                  # 組別/階段（如「A組」、「附加賽」）
 
 
 @dataclass

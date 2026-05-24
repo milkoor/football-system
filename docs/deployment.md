@@ -1,7 +1,7 @@
 # 足球数据系统 - 部署文档
 
-**版本**: 1.0.0
-**更新日期**: 2026-04-12
+**版本**: 1.2.0
+**更新日期**: 2026-05-24
 
 ---
 
@@ -52,6 +52,8 @@ cp .env.example .env
 cd /home/mk/project/football_system
 docker-compose up -d
 ```
+
+> **v1.2.0 变更**: Dockerfile 改用 `python:3.11-slim` 基础镜像，添加 `PYTHONDONTWRITEBYTECODE` 和 `PYTHONUNBUFFERED` 环境变量，docker-compose.yml 新增 `build` 上下文配置。
 
 ### 2.4 验证服务
 

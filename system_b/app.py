@@ -29,10 +29,12 @@ try:
     from config.settings import get_settings
 
     if "auto_scheduler" not in st.session_state:
+        from core.config_store import get_store
         sched = SyncScheduler(
             connector=get_connector(),
             follow_manager=get_follow_manager(),
-            settings=get_settings()
+            settings=get_settings(),
+            store=get_store(),
         )
         st.session_state.auto_scheduler = sched
         logger = logging.getLogger(__name__)

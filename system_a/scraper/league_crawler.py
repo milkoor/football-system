@@ -191,27 +191,98 @@ class LeagueCrawler:
         """
         matches = []
 
-        # 先从联赛页面提取赛季数据 URL（titan007 使用 s{id}_{instance}.js 新格式）
-        data_url = None
+        # 从联赛页提取一个 sample 数据 URL，用它解析 arrSubLeague
+        # 联赛页通常只暴露最新赛季的最后一个 sub-league（如附加赛决赛）
+        # 我们需要抓取所有 sub-league（主联赛 + 冠军组/保级组/附加赛等）合并
+        # sub_leagues: [(instance_id, name_en, is_main_league), ...]
+        sub_leagues: list[tuple[int, str, bool]] = []
         try:
-            league_url = f"{self.BASE_URL}/big/League/{league_id}.html"
-            resp = self.session.get(league_url, timeout=15)
-            if resp.status_code == 200:
-                import re as _re
-                # 找 /jsData/matchResult/{season}/s{league_id}_{instance}.js
-                pattern = _re.escape(f"/jsData/matchResult/") + r"[^\"']*" + _re.escape(f"s{league_id}_") + r"\d+\.js"
-                found = _re.search(pattern, resp.text)
+            # 当指定赛季时，优先尝试 SubLeague 页面（可获取该赛季正确的子联赛实例）
+            # 例如日职联 2025 使用子联赛实例 943，但 2026 使用 3540/3541
+            urls_to_try = []
+            if season:
+                urls_to_try.append(f"{self.BASE_URL}/big/SubLeague/{season}/{league_id}.html")
+            urls_to_try.append(f"{self.BASE_URL}/big/League/{league_id}.html")
+
+            resp = None
+            for url in urls_to_try:
+                resp = self.session.get(url, timeout=15)
+                if resp.status_code == 200:
+                    break
+
+            if resp and resp.status_code == 200:
+                pattern = re.escape(f"/jsData/matchResult/") + r"([^\"']*?)" + re.escape(f"s{league_id}_") + r"(\d+)\.js"
+                found = re.search(pattern, resp.text)
                 if found:
-                    data_url = f"{self.INFO_URL}{found.group()}"
+                    sample_url = f"{self.INFO_URL}{found.group(0).split('?')[0]}"
+                    sample_html = self._get_html(sample_url)
+                    if sample_html and "对不起！你查看的页面不存在" not in sample_html:
+                        sub_m = re.search(r'var\s+arrSubLeague\s*=\s*(\[.*?\]);', sample_html, re.DOTALL)
+                        if sub_m:
+                            try:
+                                raw = sub_m.group(1).replace("'", '"')
+                                sub_list = json.loads(raw)
+                                # arrSubLeague entry: [id, nameZh, nameTw, nameEn, isMainLeague(0/1), totalRounds, ...]
+                                for entry in sub_list:
+                                    if isinstance(entry, list) and len(entry) > 4:
+                                        sub_leagues.append((
+                                            entry[0],
+                                            entry[3] if len(entry) > 3 else "",
+                                            entry[4] == 1,
+                                        ))
+                            except (json.JSONDecodeError, IndexError):
+                                pass
         except Exception as e:
             logger.debug(f"获取联赛 {league_id} 页面失败: {e}")
 
-        # 用提取到的 URL 获取赛季数据
-        if data_url and season:
-            url = data_url
-            html = self._get_html(url)
-            if html and "对不起！你查看的页面不存在" not in html:
-                matches = self._parse_schedule_js(html, league_id, season)
+        # 抓取所有 sub-league 并合并（按 match_id 去重）
+        # 为避免不同 sub-league 的轮次（如 R_1）冲突，给非主联赛 sub-league 加唯一前缀
+        if sub_leagues and season:
+            # 找出"基础联赛"：第一个 isMainLeague=1 且英文名为 'League' 的（如 23 场 38 轮的常规赛）
+            # 如果没有，第一个 isMainLeague=1 的视作基础联赛，不加前缀
+            base_inst = None
+            for inst_id, name_en, is_main in sub_leagues:
+                if is_main and name_en == "League":
+                    base_inst = inst_id
+                    break
+            if base_inst is None:
+                for inst_id, name_en, is_main in sub_leagues:
+                    if is_main:
+                        base_inst = inst_id
+                        break
+
+            # 并发抓取所有 sub-league HTML（IO 密集，6 线程已足够）
+            import concurrent.futures as _cf
+
+            def _fetch(inst_id):
+                url = f"{self.INFO_URL}/jsData/matchResult/{season}/s{league_id}_{inst_id}.js"
+                return inst_id, self._get_html(url)
+
+            inst_html: dict = {}
+            with _cf.ThreadPoolExecutor(max_workers=min(6, len(sub_leagues))) as pool:
+                for inst_id, html in pool.map(_fetch, [s[0] for s in sub_leagues]):
+                    inst_html[inst_id] = html
+
+            seen_ids: set = set()
+            # 保留 sub_leagues 顺序以保证去重时 base 联赛先入
+            for inst_id, name_en, _is_main in sub_leagues:
+                html = inst_html.get(inst_id)
+                if not html or "对不起！你查看的页面不存在" in html:
+                    continue
+                sub_matches = self._parse_schedule_js(html, league_id, season)
+                prefix = "" if inst_id == base_inst else f"S{inst_id}_"
+                for m in sub_matches:
+                    mid = m.get("match_id")
+                    if mid in seen_ids:
+                        continue
+                    if prefix:
+                        m["round_name"] = f"{prefix}{m.get('round_name', 'R_1')}"
+                    matches.append(m)
+                    seen_ids.add(mid)
+            logger.info(
+                f"联赛 {league_id} {season}: 抓取 {len(sub_leagues)} 个 sub-league，"
+                f"合并去重后 {len(matches)} 场"
+            )
 
         # 回退到旧格式
         if not matches and season:
@@ -333,8 +404,6 @@ class LeagueCrawler:
                 json_str = re.sub(r"'([^']+)'", r'"\1"', json_str)
                 # 3. 处理特殊值
                 json_str = json_str.replace("undefined", "null")
-                json_str = json_str.replace("true", "true")
-                json_str = json_str.replace("false", "false")
                 # 4. 处理多余的逗号
                 json_str = re.sub(r',,\s*]', ']', json_str)
                 json_str = re.sub(r',,\s*,', ',', json_str)
@@ -342,7 +411,25 @@ class LeagueCrawler:
                 try:
                     data = json.loads(json_str)
 
+                    # 检测是否为淘汰赛配对结构（升级附加赛/季后赛常见）
+                    # 正赛: [[matchId, leagueId, ..., time(str), home_id, away_id, score, ...], ...]
+                    # 淘汰赛: [[home_id, away_id, home_wins, away_wins, [leg1_match], [leg2_match]], ...]
+                    # 区分依据: 正赛 item[3] 是时间字符串，淘汰赛 item[4]/item[5] 是 sub-list
+                    flat_items = []
                     for item in data:
+                        if not isinstance(item, list):
+                            continue
+                        # 淘汰赛配对：里面有 sub-list 形式的 leg
+                        has_sub_list = any(isinstance(x, list) and len(x) >= 7 for x in item)
+                        if has_sub_list:
+                            # 提取每个 leg 作为独立 match
+                            for sub in item:
+                                if isinstance(sub, list) and len(sub) >= 7:
+                                    flat_items.append(sub)
+                        else:
+                            flat_items.append(item)
+
+                    for item in flat_items:
                         if not isinstance(item, list) or len(item) < 10:
                             continue
 
@@ -401,8 +488,6 @@ class LeagueCrawler:
 
                     # 处理 undefined 和其他 JS 特殊值
                     json_str = json_str.replace("undefined", "null")
-                    json_str = json_str.replace("true", "true")
-                    json_str = json_str.replace("false", "false")
 
                     # 处理多余的逗号
                     json_str = re.sub(r',,\s*]', ']', json_str)
@@ -453,7 +538,7 @@ class LeagueCrawler:
         seasons = []
         current_year = datetime.now().year
 
-        # 尝试最近几个赛季，从当前年份开始
+        # 尝试最近几个赛季（YYYY-YYYY格式，如 2025-2026）
         for year_offset in range(0, 5):
             start_year = current_year - year_offset
             end_year = start_year + 1
@@ -463,10 +548,21 @@ class LeagueCrawler:
             html = self._get_html(url)
 
             if html and "对不起！你查看的页面不存在" not in html:
-                # 检查文件是否有实际数据
                 if self._has_match_data(html):
                     seasons.append(season_label)
-                    logger.info(f"发现可用赛季: {season_label}")
+                    logger.info(f"发现可用赛季(YYYY-YYYY): {season_label}")
+
+        # 尝试年格式（日职联等使用，如 2026, 2025）
+        if not seasons:
+            for year_offset in range(0, 5):
+                year = current_year - year_offset
+                season_label = str(year)
+                url = f"{self.INFO_URL}/jsData/matchResult/{season_label}/s{league_id}.js"
+                html = self._get_html(url)
+                if html and "对不起！你查看的页面不存在" not in html:
+                    if self._has_match_data(html):
+                        seasons.append(season_label)
+                        logger.info(f"发现可用赛季(year-only): {season_label}")
 
         # 如果没有找到常规赛季，尝试不带赛季的URL（世界杯等特殊赛事）
         if not seasons:

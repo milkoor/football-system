@@ -155,6 +155,32 @@ cd system_b && bash run_tests.sh
 
 ## 版本历史
 
+### v1.2.0 (2026-05-24)
+
+**Bug Fixes**
+- 日職聯(JLeague) ETL 流程完整修復（結算→導入→分組→計算）
+- 快速配置按鈕判定改為逐聯賽檢查隊伍內容而非僅檢查資料列存在
+- 隊伍分組均分至各群組（Top/Mid/Weak），而非全部分配到同一群組
+- 上賽季分組未配置問題修復（current/previous 角色同時配置）
+- 歷史紀錄「檢視」按鈕功能修復（移除多餘 rerun）
+- 洲別未正確映射問題修復（意甲等聯賽顯示「其他」而非「歐洲」）
+- 賽季 year_start 改為動態獲取（datetime.now().year），避免硬編碼
+
+**Features**
+- 結算模組整合：System A 自動結算後導入 System B，ETL 區間統計不再全零
+- 賽季同步擴充：支援 SubLeague 歷史賽季 JS 檔案發現（多目錄格式）
+- 賠率爬蟲 ThreadPoolExecutor 並行化提升效率
+- 爬蟲任務狀態常數集中管理
+- 資料連接器新增 ping / get_sub_league_names 等方法
+- ETL 執行頁篩選洲別功能
+
+**Cleanup**
+- 移除冗餘頁面轉接層目錄（pages/、pages_backup/）
+- 移除重複測試目錄（tests/tests/）
+- 移除 __pycache__ 編譯快取
+
+---
+
 ### v1.1.0 (2026-05-12)
 
 **Bug Fixes**
@@ -189,4 +215,4 @@ MIT License
 
 ---
 
-*最后更新: 2026-05-12*
+*最后更新: 2026-05-24*

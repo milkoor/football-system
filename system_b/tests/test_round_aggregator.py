@@ -31,7 +31,7 @@ class TestRoundBlockAggregatorAggregate:
 
     def test_empty_input(self):
         agg = RoundBlockAggregator()
-        blocks = agg.aggregate({})
+        blocks = agg.aggregate({}, block_size=10, max_blocks=6)
         assert len(blocks) == 6
         for block in blocks:
             assert len(block.zones) == 9

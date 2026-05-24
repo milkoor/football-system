@@ -4,13 +4,13 @@ from typing import List, Optional
 import threading
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import date, datetime
 import logging
 import re
 
 from config.database import get_db
-from config.models import LeagueIndex, Season
+from config.models import LeagueIndex, Season, CrawlJob
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -48,8 +48,7 @@ class LeagueResponse(LeagueBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SeasonBase(BaseModel):
@@ -65,8 +64,7 @@ class SeasonResponse(SeasonBase):
     """赛季响应"""
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 路由 ============
@@ -297,6 +295,19 @@ async def sync_seasons_for_league(
         # 全局限流：最多 6 个任务同时爬 titan007，超时 10 分钟
         if not _sync_semaphore.acquire(timeout=600):
             logger.warning(f"同步任务 {job_id} 等待信号量超时，跳过")
+            from config.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _job = _db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
+                if _job:
+                    _job.status = "failed"
+                    _job.error_message = "等待信号量超时（10分钟）"
+                    _job.completed_at = datetime.utcnow()
+                    _db.commit()
+            except Exception as _e:
+                logger.error(f"无法更新超时任务 {job_id} 状态: {_e}")
+            finally:
+                _db.close()
             return
 
         try:
@@ -461,6 +472,8 @@ async def batch_sync_seasons(
             created = 0
             skipped = 0
 
+            # 第一步：创建所有赛季记录
+            _log.info("batch_sync: 开始创建赛季记录")
             for league in leagues:
                 labels = all_seasons.get(league.league_id, [])
                 if not labels:
@@ -481,16 +494,24 @@ async def batch_sync_seasons(
                         skipped += 1
 
             db.commit()
+            _log.info(f"batch_sync: 赛季记录创建完成！创建 {created} 个赛季记录, 跳过 {skipped} 个已有记录")
 
+            # 批量同步只创建赛季基础数据，供用户选择关注
+            # 比赛赛程、赔率、X值计算等，等用户关注后在数据导入页面单独同步
+            total_seasons = created + skipped
+
+            # 最终更新任务状态
             j = db.query(CrawlJob).filter(CrawlJob.id == job_id).first()
             if j:
                 j.status = "completed"
                 j.completed_at = datetime.utcnow()
-                j.total_matches = created
-                j.completed_matches = skipped
+                j.total_matches = total_seasons  # 总赛季数
+                j.completed_matches = created  # 新创建的赛季数
+                j.failed_matches = 0
+                j.error_message = f"同步完成，共 {total_seasons} 个赛季可供选择关注"
                 db.commit()
 
-            _log.info(f"batch_sync: 完成！创建 {created} 个赛季记录, 跳过 {skipped} 个已有记录")
+            _log.info(f"batch_sync: 全部完成！共处理 {total_seasons} 个赛季，其中新创建 {created} 个赛季")
 
         except Exception as e:
             _log.error(f"batch_sync: 失败: {e}")

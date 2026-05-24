@@ -7,10 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 导入原始页面并调用 render()
 try:
-    if 'original_pages' == 'app_pages':
-        from app_pages.history import render
-    else:
-        from original_pages.history import render
+    from original_pages.history import render
     
 except Exception as e:
     st.error(f"页面加载失败: {e}")

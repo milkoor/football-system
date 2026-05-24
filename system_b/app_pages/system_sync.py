@@ -12,8 +12,14 @@ import time
 import logging
 
 from modules.data_connector import get_connector
+from utils.system_a_mapper import get_league_display_name
 
 logger = logging.getLogger(__name__)
+
+
+@st.cache_data(ttl=30)
+def _cached_ping() -> bool:
+    return get_connector().ping()
 
 
 def render():
@@ -43,7 +49,7 @@ def render():
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("系統A連接", "✅ 正常" if connector else "❌ 失敗")
+        st.metric("系統A連接", "✅ 正常" if _cached_ping() else "❌ 失敗")
     with col2:
         try:
             leagues = connector.get_leagues(enabled=True)
@@ -62,16 +68,33 @@ def render():
     col_clear, col_sync_all = st.columns(2)
 
     with col_clear:
-        if st.button("🧹 清除所有同步資料", type="secondary", key="btn_clear_sync"):
-            if st.warning("這會清除本地同步的所有資料，確定繼續嗎?", icon="⚠️"):
-                with st.spinner("正在清除所有同步資料..."):
-                    try:
-                        connector.clear_sync_data()
-                        st.success("✅ 所有同步資料已清除")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ 清除失敗: {e}")
+        if "confirm_clear_sync" not in st.session_state:
+            st.session_state.confirm_clear_sync = False
+
+        if st.button("🧹 清除所有同步資料", type="secondary", key="btn_clear_sync",
+                     disabled=st.session_state.confirm_clear_sync):
+            st.session_state.confirm_clear_sync = True
+            st.rerun()
+
+        if st.session_state.confirm_clear_sync:
+            st.warning("這會清除本地同步的所有資料，確定繼續嗎?")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("✅ 確認清除", type="primary", key="btn_confirm_clear"):
+                    with st.spinner("正在清除所有同步資料..."):
+                        try:
+                            connector.clear_sync_data()
+                            st.success("✅ 所有同步資料已清除")
+                            st.session_state.confirm_clear_sync = False
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 清除失敗: {e}")
+                            st.session_state.confirm_clear_sync = False
+            with col_cancel:
+                if st.button("❌ 取消", key="btn_cancel_clear"):
+                    st.session_state.confirm_clear_sync = False
+                    st.rerun()
 
     with col_sync_all:
         sync_disabled = st.session_state.batch_in_progress
@@ -114,20 +137,30 @@ def render():
                     st.rerun()
             else:
                 status = job.get('status', 'unknown')
-                created = job.get('total_matches', 0)
-                skipped = job.get('completed_matches', 0)
+                total = job.get('total_matches', 0)
+                completed = job.get('completed_matches', 0)
                 failed = job.get('failed_matches', 0)
+                error_msg = str(job.get('error_message', ''))  # 确保是字符串类型
 
-                col_a, col_b, col_c = st.columns(3)
+                col_a, col_b, col_c, col_d = st.columns(4)
                 with col_a:
                     st.metric("狀態", status)
                 with col_b:
-                    st.metric("新增賽季記錄", created)
+                    st.metric("總賽季數", total)
                 with col_c:
-                    st.metric("已存在(跳過)", skipped)
+                    st.metric("已完成", completed)
+                with col_d:
+                    st.metric("失敗", failed)
+
+                # 显示同步的比赛数（如果有）
+                if "同步" in error_msg and "场比赛" in error_msg:
+                    st.info(f"📊 {error_msg}")
 
                 if status == "completed":
-                    st.success(f"🎉 批量同步完成！新增 {created} 個賽季記錄，跳過 {skipped}")
+                    success_msg = f"🎉 批量同步完成！共 {total} 個賽季，完成 {completed}，失敗 {failed}"
+                    if "同步" in error_msg and "场比赛" in error_msg:
+                        success_msg += f"，{error_msg}"
+                    st.success(success_msg)
                     st.session_state.batch_in_progress = False
                     st.session_state.batch_job_id = None
                 elif status == "failed":
@@ -153,7 +186,7 @@ def render():
             st.write(f"目前有 {len(leagues)} 個啟用的聯賽:")
             with st.expander("查看聯賽列表"):
                 for league in leagues:
-                    st.write(f"- {league.get('country', '')} - {league.get('league_name_tw', league.get('league_name_zh', ''))}")
+                    st.write(f"- {league.get('country', '')} - {get_league_display_name(league)}")
         else:
             st.warning("資料庫中沒有聯賽資料，請先同步聯賽列表。")
     except Exception as e:

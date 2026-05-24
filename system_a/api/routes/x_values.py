@@ -4,7 +4,7 @@ from typing import List, Optional
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -46,8 +46,7 @@ class XValueResultResponse(BaseModel):
     movement_url: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 路由 ============

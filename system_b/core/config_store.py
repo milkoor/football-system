@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS match_records (
     settlement_direction TEXT NOT NULL DEFAULT '',
     home_away_direction TEXT NOT NULL DEFAULT '',
     target_team         TEXT NOT NULL DEFAULT '',
+    group_name          TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -469,6 +470,22 @@ class ConfigStore:
             except Exception:
                 logger.error("Schema migration to v4 failed", exc_info=True)
 
+        if version < 5:
+            try:
+                # v5: 新增 match_records.group_name 欄位，用於存儲比賽所屬的組別/階段
+                cols = [
+                    row[1]
+                    for row in self._conn.execute("PRAGMA table_info(match_records)").fetchall()
+                ]
+                if "group_name" not in cols:
+                    self._conn.execute(
+                        "ALTER TABLE match_records ADD COLUMN group_name TEXT NOT NULL DEFAULT ''"
+                    )
+                self._conn.commit()
+                self._set_schema_version(5)
+            except Exception:
+                logger.error("Schema migration to v5 failed", exc_info=True)
+
     # ------------------------------------------------------------------
     # 聯賽 CRUD
     # ------------------------------------------------------------------
@@ -669,6 +686,12 @@ class ConfigStore:
             phase=phase,
         )
         self.set_season_role(new_sid, "current")
+
+        # 複製原本季的 TeamGroup 到新本季
+        for tg in self.list_team_groups(current.id):
+            new_gid = self.create_team_group(new_sid, tg.name, tg.display_name)
+            if tg.teams:
+                self.set_teams(new_gid, tg.teams)
 
         self._conn.commit()
         return new_sid, False
@@ -1001,8 +1024,8 @@ class ConfigStore:
                     "INSERT INTO match_records "
                     "(season_instance_id, play_type, timing, round, home_team, score, "
                     "away_team, x_value, sim_result, link, settlement_value, "
-                    "settlement_direction, home_away_direction, target_team) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "settlement_direction, home_away_direction, target_team, group_name) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         season_instance_id,
                         play_type,
@@ -1018,6 +1041,7 @@ class ConfigStore:
                         r.settlement_direction,
                         r.home_away_direction,
                         r.target_team,
+                        r.group,
                     ),
                 )
             self._conn.execute("COMMIT")
@@ -1101,6 +1125,7 @@ class ConfigStore:
             settlement_direction=row["settlement_direction"],
             home_away_direction=row["home_away_direction"],
             target_team=row["target_team"],
+            group=row["group_name"] or "",
         )
 
     # ------------------------------------------------------------------

@@ -26,6 +26,7 @@ from datetime import datetime
 
 from config.database import SessionLocal
 from config.models import Match, OddsMovement
+from scraper.handicap_normalizer import HandicapNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -33,50 +34,14 @@ logger = logging.getLogger(__name__)
 class AutoSettlementCalculator:
     """自动结算计算器"""
 
-    # 盘口标准化映射
-    HANDICAP_MAP = {
-        "平手": 0.0, "平手盘": 0.0, "0": 0.0,
-        "平/半": 0.25, "平手/半球": 0.25,
-        "半球": 0.5,
-        "半/一": 0.75, "半球/一球": 0.75,
-        "一球": 1.0,
-        "一/球半": 1.25, "一球/球半": 1.25,
-        "球半": 1.5,
-        "球半/兩球": 1.75, "兩球": 2.0,
-        "兩球/兩球半": 2.25, "兩球半": 2.5,
-        "兩球半/三球": 2.75, "三球": 3.0,
-    }
-
     def normalize_handicap(self, handicap_raw: str) -> Optional[float]:
         """标准化盘口"""
         if not handicap_raw:
             return None
 
-        t = handicap_raw.strip().replace(" ", "")
-
-        # 处理受让
-        is_receive = False
-        if "受让" in t or "受讓" in t or "受" in t:
-            is_receive = True
-            t = t.replace("受让", "").replace("受讓", "").replace("受", "")
-
-        # 查表
-        if t in self.HANDICAP_MAP:
-            value = self.HANDICAP_MAP[t]
-            return -value if is_receive else value
-
-        # 尝试解析数字型盘口
-        try:
-            if "/" in t:
-                parts = t.split("/")
-                value = (float(parts[0]) + float(parts[1])) / 2
-            else:
-                value = float(t)
-            return -value if is_receive else value
-        except (ValueError, IndexError):
-            pass
-
-        return None
+        # Remove * marker before normalization
+        cleaned = handicap_raw.replace("*", "")
+        return HandicapNormalizer.normalize(cleaned)
 
     def parse_score(self, score_str: str) -> Optional[Tuple[int, int]]:
         """解析比分字符串，如 "2-1" -> (2, 1)"""

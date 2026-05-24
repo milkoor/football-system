@@ -17,9 +17,8 @@ from datetime import datetime
 
 from core.config_store import get_store
 from modules.data_connector import get_connector
-from modules.x_calculator import XValueCalculator
 from modules.follow_list import get_follow_manager
-from utils.system_a_mapper import sync_league_to_system_b, sync_season_to_system_b
+from utils.system_a_mapper import get_league_display_name
 
 
 logger = logging.getLogger(__name__)
@@ -45,24 +44,23 @@ def _resolve_follow_list(follow_manager, connector):
         parts = name.split(" - ", 1)
         search_name = parts[-1] if len(parts) > 1 else name
 
-        found = None
-        for lg in leagues_all:
-            lg_name = lg.get('league_name_tw', '') or lg.get('league_name_zh', '')
-            if search_name in lg_name or lg_name in search_name:
-                found = lg
-                break
+        from utils.system_a_mapper import find_league_by_name_fuzzy
+        found = find_league_by_name_fuzzy(leagues_all, search_name)
 
         if found:
             old_id = item["league_id"]
             item["league_id"] = found["id"]
-            follow_manager.remove(old_id, item.get("season_label"))
+            follow_manager.remove(old_id)
             follow_manager.add(
                 league_id=found["id"],
                 league_name=name,
-                season_label=item.get("season_label", ""),
                 country=item.get("country", ""),
             )
             logger.warning(f"已修复过期的关注联赛ID: {old_id} -> {found['id']} ({found.get('league_name_tw', '')})")
+        else:
+            # 找不到对应的联赛，删除失效的关注
+            follow_manager.remove(lid)
+            logger.warning(f"已删除失效的关注联赛: {name} (ID: {lid})，请重新添加")
 
     return follow_manager.get_all()
 
@@ -96,7 +94,6 @@ def render():
     # 初始化
     store = get_store()
     connector = get_connector()
-    x_calculator = XValueCalculator(connector)
     follow_manager = get_follow_manager()
 
     # 解析关注列表，修复过期的数据库ID（数据库重建后自增ID会变）
@@ -122,7 +119,7 @@ def render():
             all_leagues = fetch_leagues(connector)
             if all_leagues:
                 league_options = {
-                    f"{l.get('country', '')} - {l.get('league_name_tw', l.get('league_name_zh', ''))}": l
+                    f"{l.get('country', '')} - {get_league_display_name(l)}": l
                     for l in all_leagues
                 }
 
@@ -133,53 +130,22 @@ def render():
                 )
 
                 selected_league = None
-                selected_season_name = None
-                selected_season = None
 
                 if selected_league_name and selected_league_name != "請選擇聯賽":
                     selected_league = league_options[selected_league_name]
 
-                    # 获取该联赛的赛季列表（从API同步的结果）
-                    seasons = connector.get_seasons(selected_league['id'])
-
-                    # 本地生成期望的赛季标签（当前年-1 ~ 当前年-4），作为 API 结果的兜底
-                    _cur = datetime.now().year
-                    _expected_labels = [
-                        f"{_cur - y - 1}-{_cur - y}"
-                        for y in range(4)  # 生成最近 4 个赛季
-                    ]
-
-                    # 合并 API 赛季 + 本地生成的赛季标签
-                    season_options = {}
-                    if seasons:
-                        for s in seasons:
-                            season_options[s['season_label']] = s
-                    for lbl in _expected_labels:
-                        if lbl not in season_options:
-                            season_options[lbl] = {"season_label": lbl}
-
-                    selected_season_name = st.selectbox(
-                        "选择赛季",
-                        ["請選擇賽季"] + list(season_options.keys()),
-                        index=0
-                    )
-
-                    if selected_season_name and selected_season_name != "請選擇賽季":
-                        selected_season = season_options[selected_season_name]
-
-                if selected_league and selected_season:
+                if selected_league:
                     if st.button("➕ 添加到关注名单", type="primary"):
                         success = follow_manager.add(
                             league_id=selected_league['id'],
                             league_name=selected_league_name,
-                            season_label=selected_season_name,
                             country=selected_league.get('country', '')
                         )
 
                         if success:
-                            st.success(f"✅ 已添加到关注名单：{selected_league_name} - {selected_season_name}")
+                            st.success(f"✅ 已添加到关注名单：{selected_league_name}")
                         else:
-                            st.warning(f"⚠️ 已在关注名单中：{selected_league_name} - {selected_season_name}")
+                            st.warning(f"⚠️ 已在关注名单中：{selected_league_name}")
 
                         st.rerun()
             else:
@@ -192,17 +158,121 @@ def render():
         st.caption("管理关注名单")
         following = follow_manager.get_all()
         if following:
-            st.write(f"关注名单（{len(following)}个）：")
-            with st.expander("查看关注名单"):
+            st.write(f"关注名单（{len(following)}个联赛）：")
+            with st.expander("查看和管理关注名单"):
                 for item in following:
-                    col_a, col_b = st.columns([3, 1])
+                    col_a, col_b, col_c = st.columns([2, 1, 1])
                     with col_a:
-                        st.write(f"{item.get('country', '')} - {item.get('league_name')} ({item.get('season_label')})")
+                        st.write(f"{item.get('country', '')} - {item.get('league_name')}")
+                        # 显示已同步的赛季
+                        seasons = item.get('seasons', [])
+                        if seasons:
+                            st.caption(f"已同步赛季: {', '.join(seasons)}")
                     with col_b:
-                        if st.button("删除", key=f"del_{item['league_id']}_{item['season_label']}"):
-                            follow_manager.remove(item['league_id'], item['season_label'])
+                        if st.button("分组映射", key=f"map_{item['league_id']}"):
+                            st.session_state[f"show_mapping_{item['league_id']}"] = not st.session_state.get(f"show_mapping_{item['league_id']}", False)
+                    with col_c:
+                        if st.button("删除", key=f"del_{item['league_id']}"):
+                            follow_manager.remove(item['league_id'])
                             st.success(f"✅ 删除成功")
                             st.rerun()
+
+                    # 分组映射配置面板
+                    if st.session_state.get(f"show_mapping_{item['league_id']}", False):
+                        st.info("⚙️ 赛季分组映射配置（将当前赛季组别对应到上赛季组别）")
+                        league_id = item['league_id']
+                        mapping = item.get('group_mapping', {})
+
+                        # 组别信息（从同步时写入的 season_groups 读取，避免实时调用 titan007）
+                        season_groups = item.get('season_groups', {})
+                        current_groups = {}
+                        previous_groups = {}
+
+                        # 获取该联赛的赛季列表
+                        seasons = fetch_seasons(connector, league_id)
+                        if len(seasons) < 2:
+                            st.warning("⚠️ 该联赛不足2个赛季，无法进行分组匹配")
+                        else:
+                            # 取最近2个赛季
+                            current_season = seasons[0]['season_label']
+                            previous_season = seasons[1]['season_label']
+
+                            st.write(f"当前赛季: {current_season}")
+                            st.write(f"上一赛季: {previous_season}")
+
+                            # 从存储读取组别信息，如有缺失则实时获取
+                            from utils.system_a_mapper import get_season_groups, auto_match_groups
+
+                            current_groups = season_groups.get(current_season, {})
+                            previous_groups = season_groups.get(previous_season, {})
+
+                            if not current_groups or not previous_groups:
+                                with st.spinner("加载组别信息..."):
+                                    if not current_groups:
+                                        current_groups = get_season_groups(connector, league_id, current_season)
+                                    if not previous_groups:
+                                        previous_groups = get_season_groups(connector, league_id, previous_season)
+                                # 回写到存储
+                                if current_groups or previous_groups:
+                                    season_groups.update({current_season: current_groups, previous_season: previous_groups})
+                                    follow_manager.update_season_groups(league_id, season_groups)
+
+                            # 刷新按钮（手动重新获取）
+                            if st.button("🔄 刷新分组", key=f"refresh_groups_{league_id}"):
+                                with st.spinner("刷新组别信息..."):
+                                    current_groups = get_season_groups(connector, league_id, current_season)
+                                    previous_groups = get_season_groups(connector, league_id, previous_season)
+                                    season_groups = {current_season: current_groups, previous_season: previous_groups}
+                                    follow_manager.update_season_groups(league_id, season_groups)
+                                st.rerun()
+
+                            # 自动匹配按钮
+                            if st.button("🤖 自动匹配", key=f"auto_match_{league_id}"):
+                                auto_mapping = auto_match_groups(current_groups, previous_groups)
+                                # 合并到现有映射，不覆盖已有
+                                for cur, prev in auto_mapping.items():
+                                    if cur not in mapping:
+                                        mapping[cur] = prev
+                                follow_manager.update_group_mapping(league_id, mapping)
+                                st.success("✅ 自动匹配完成")
+                                st.rerun()
+
+                            # 添加新映射
+                            st.subheader("添加映射")
+                            col_group1, col_group2 = st.columns([1,1])
+                            with col_group1:
+                                # 当前赛季组别下拉
+                                current_options = [f"{k} ({v})" for k, v in current_groups.items()]
+                                current_selected = st.selectbox("当前赛季组别", ["请选择"] + current_options, key=f"cur_group_{league_id}")
+                            with col_group2:
+                                # 上赛季组别下拉
+                                previous_options = [f"{k} ({v})" for k, v in previous_groups.items()]
+                                previous_selected = st.selectbox("对应上赛季组别", ["请选择"] + previous_options, key=f"tar_group_{league_id}")
+
+                            if st.button("➕ 添加映射", key=f"add_map_{league_id}"):
+                                if current_selected != "请选择" and previous_selected != "请选择":
+                                    # 提取group_id
+                                    current_group_id = current_selected.split(" ")[0]
+                                    previous_group_id = previous_selected.split(" ")[0]
+                                    mapping[current_group_id] = previous_group_id
+                                    follow_manager.update_group_mapping(league_id, mapping)
+                                    st.success(f"✅ 已添加映射: {current_selected} → {previous_selected}")
+                                    st.rerun()
+
+                        # 显示已有映射
+                        if mapping:
+                            st.subheader("已配置的映射")
+                            for cur, tar in mapping.items():
+                                col_map1, col_map2, col_map3 = st.columns([2,2,1])
+                                # 显示名称，如果有的话
+                                cur_display = f"{cur} ({current_groups.get(cur, '')})" if cur in current_groups else cur
+                                tar_display = f"{tar} ({previous_groups.get(tar, '')})" if tar in previous_groups else tar
+                                col_map1.write(cur_display)
+                                col_map2.write(f"→ {tar_display}")
+                                if col_map3.button("删除", key=f"del_map_{league_id}_{cur}"):
+                                    del mapping[cur]
+                                    follow_manager.update_group_mapping(league_id, mapping)
+                                    st.rerun()
         else:
             st.info("暂无关注的联赛赛季")
 
@@ -214,6 +284,8 @@ def render():
         st.session_state.sync_step = None
     if "sync_busy" not in st.session_state:
         st.session_state.sync_busy = False
+    if "sync_errors" not in st.session_state:
+        st.session_state.sync_errors = []
 
     following = follow_manager.get_all()
     busy = st.session_state.sync_busy
@@ -237,6 +309,12 @@ def render():
 
         step = st.session_state.sync_step
 
+        # ---- 错误信息显示 ----
+        if st.session_state.sync_errors:
+            st.error("❌ 同步过程中出现以下错误:")
+            for err in st.session_state.sync_errors:
+                st.write(f"- {err}")
+
         # ---- 状态显示 ----
         status_map = {
             'sync': '⏳ 步骤1/3: 触发赛程同步...',
@@ -256,26 +334,66 @@ def render():
                     st.session_state.sync_step = 'sync'
                     st.session_state.sync_busy = True
                     st.session_state.sync_results = []
+                    st.session_state.sync_errors = []
                     st.rerun()
             with col_b:
                 if st.button("📥 仅导入到系统B", type="secondary", key="btn_import_only", disabled=busy):
                     st.session_state.sync_step = 'xcalc'
                     st.session_state.sync_busy = True
+                    st.session_state.sync_errors = []
                     st.rerun()
 
         elif step == 'sync':
             pending_jobs = []
+            st.session_state.sync_errors = []
+            st.session_state.sync_league_seasons = {}  # 存储每个联赛同步的赛季
+
             for item in following:
                 try:
-                    result = connector.sync_seasons_for_league(item['league_id'], item['season_label'])
-                    jid = result.get('job_id')
-                    if jid:
-                        pending_jobs.append(jid)
+                    league_id = item['league_id']
+                    league_name = item['league_name']
+
+                    # 获取该联赛的所有赛季，取最近2个
+                    seasons = connector.get_seasons(league_id)
+                    if not seasons:
+                        st.warning(f"⚠️ {league_name} 没有找到可用赛季，跳过")
+                        continue
+
+                    # 赛季通常按时间倒序排列，取前2个（本赛季+上赛季）
+                    recent_seasons = [s['season_label'] for s in seasons[:2]]
+                    st.info(f"ℹ️ {league_name} 同步最近2个赛季: {', '.join(recent_seasons)}")
+
+                    # 存储赛季信息，后续同步完成后更新到关注列表
+                    st.session_state.sync_league_seasons[league_id] = recent_seasons
+
+                    # 逐个触发赛季同步
+                    for season in recent_seasons:
+                        try:
+                            result = connector.sync_seasons_for_league(league_id, season)
+                            jid = result.get('job_id')
+                            if jid:
+                                pending_jobs.append(jid)
+                                st.success(f"{league_name} {season} 同步触发成功: job_id={jid}")
+                        except Exception as e:
+                            error_msg = f"{league_name} {season} 同步触发失败: {str(e)}"
+                            st.session_state.sync_errors.append(error_msg)
+                            st.error(error_msg)
+
                 except Exception as e:
-                    st.warning(f"{item['league_name']} 同步触发失败: {e}")
-            st.session_state.sync_pending = pending_jobs
-            st.session_state.sync_step = 'poll_sync'
-            st.rerun()
+                    error_msg = f"{item['league_name']} 获取赛季列表失败: {str(e)}"
+                    st.session_state.sync_errors.append(error_msg)
+                    st.error(error_msg)
+
+            if pending_jobs:
+                st.session_state.sync_pending = pending_jobs
+                st.session_state.sync_step = 'poll_sync'
+                time.sleep(2)  # 给用户看信息的时间
+                st.rerun()
+            else:
+                st.error("❌ 所有赛季同步触发都失败了，请检查错误信息")
+                st.session_state.sync_step = None
+                st.session_state.sync_busy = False
+                st.rerun()
 
         elif step == 'poll_sync':
             remaining = []
@@ -295,42 +413,102 @@ def render():
                 st.rerun()
             else:
                 st.success("✅ 赛程同步完成")
+
+                # 将同步成功的赛季更新到关注列表，并获取赛季分组信息
+                if 'sync_league_seasons' in st.session_state:
+                    from utils.system_a_mapper import get_season_groups
+                    for league_id, seasons in st.session_state.sync_league_seasons.items():
+                        follow_manager.update_seasons(league_id, seasons)
+                        # 同步各赛季分组信息（写入 follow_list 供分组映射面板读取）
+                        season_groups = {}
+                        for s in seasons:
+                            try:
+                                groups = get_season_groups(connector, league_id, s)
+                                if groups:
+                                    season_groups[s] = groups
+                            except Exception:
+                                pass
+                        if season_groups:
+                            follow_manager.update_season_groups(league_id, season_groups)
+                    del st.session_state.sync_league_seasons
+
                 st.session_state.sync_step = 'crawl'
                 st.rerun()
 
         elif step == 'crawl':
             crawl_jobs = []
+            st.session_state.sync_errors = []
             for item in following:
                 try:
-                    result = connector.trigger_crawl(item['league_id'], item['season_label'])
-                    jid = result.get('job_id')
-                    if jid:
-                        crawl_jobs.append(jid)
+                    league_id = item['league_id']
+                    league_name = item['league_name']
+                    seasons = item.get('seasons', [])
+
+                    if not seasons:
+                        st.warning(f"⚠️ {league_name} 没有可爬取的赛季，请先同步赛程")
+                        continue
+
+                    # 对每个赛季触发爬取
+                    for season in seasons:
+                        try:
+                            result = connector.trigger_crawl(league_id, season)
+                            jid = result.get('job_id')
+                            if jid:
+                                crawl_jobs.append(jid)
+                                st.success(f"{league_name} {season} 爬取触发成功: job_id={jid}")
+                        except Exception as e:
+                            error_msg = f"{league_name} {season} 爬取触发失败: {str(e)}"
+                            st.session_state.sync_errors.append(error_msg)
+                            st.error(error_msg)
+
                 except Exception as e:
-                    st.warning(f"{item['league_name']} 爬取触发失败: {e}")
-            st.session_state.crawl_pending = crawl_jobs
-            st.session_state.sync_step = 'poll_crawl'
-            st.rerun()
+                    error_msg = f"{item['league_name']} 爬取触发失败: {str(e)}"
+                    st.session_state.sync_errors.append(error_msg)
+                    st.error(error_msg)
+            if crawl_jobs:
+                st.session_state.crawl_pending = crawl_jobs
+                st.session_state.sync_step = 'poll_crawl'
+                time.sleep(2)  # 给用户看错误信息的时间
+                st.rerun()
+            else:
+                st.error("❌ 所有赛季爬取触发都失败了，请检查错误信息")
+                st.session_state.sync_step = None
+                st.session_state.sync_busy = False
+                st.rerun()
 
         elif step == 'poll_crawl':
             total_task = 0
             done_task = 0
             remaining = []
+            failed_jobs = []
+
             for jid in st.session_state.get('crawl_pending', []):
                 try:
                     job = connector.get_crawl_job(jid)
                     if job:
                         s = job.get('status')
-                        if s in ('running', 'pending', None):
+                        if s == 'failed':
+                            failed_jobs.append(jid)
+                            error_msg = job.get('error_message', '未知错误')
+                            st.error(f"❌ 爬取任务 {jid} 失败: {error_msg}")
+                        elif s in ('running', 'pending', None):
                             remaining.append(jid)
+                        # 统计进度
                         total_task += job.get('total_matches', 0)
                         done_task += job.get('completed_matches', 0) + job.get('failed_matches', 0)
-                except:
+                except Exception as e:
+                    logger.error(f"获取任务 {jid} 状态失败: {e}")
                     remaining.append(jid)
 
+            # 移除失败的任务
+            for jid in failed_jobs:
+                st.session_state.crawl_pending.remove(jid)
+
             if total_task > 0:
-                st.progress(min(done_task / total_task, 1.0),
-                           text=f"已处理 {done_task}/{total_task} 场比赛")
+                progress = min(done_task / total_task, 1.0)
+                st.progress(progress, text=f"已处理 {done_task}/{total_task} 场比赛")
+                # 显示进度百分比
+                st.caption(f"进度: {progress:.1%}")
             else:
                 st.progress(0.5, text="等待爬虫开始...")
 
@@ -338,11 +516,15 @@ def render():
             with col_skip:
                 skip = st.button("⏭️ 先看结果, 稍后继续爬", key="btn_skip_crawl")
 
+            # 如果还有剩余任务，并且没有点击跳过，继续等待
             if remaining and not skip:
-                time.sleep(5)
+                time.sleep(3)  # 缩短轮询间隔，更及时更新进度
                 st.rerun()
             else:
-                st.success("✅ 赔率爬取完成" if not remaining else "⏭️ 已跳过爬虫等待")
+                if not remaining:
+                    st.success(f"✅ 赔率爬取完成! 共成功 {done_task} 场, 失败 {total_task - done_task} 场")
+                else:
+                    st.info("⏭️ 已跳过爬虫等待，可稍后重新执行爬取")
                 st.session_state.sync_step = 'xcalc'
                 st.rerun()
 
@@ -375,82 +557,27 @@ def render():
                     st.session_state.sync_busy = False
                     st.rerun()
 
-            if all_completed:
-                # 建立联赛ID→名称映射
-                league_name_map = {}
-                try:
-                    for lg in connector.get_leagues(enabled=True):
-                        league_name_map[lg['id']] = lg.get('league_name_tw') or lg.get('league_name_zh', '')
-                except:
-                    pass
+            if all_completed or all_pending:
+                from utils.system_a_mapper import import_matches_to_system_b
 
-                # 收集所有记录后批量导入
-                from core.models import MatchRecord
-                from core.settlement import SettlementCalculator
+                # 合并已完成+待爬取比赛，让导入函数统一处理
+                # 待爬取比赛没有赔率数据，X值会默认为0
+                all_matches = all_completed + all_pending
 
-                batch_size = 100
-                success = 0
-                imported = 0
                 prog = st.progress(0)
-                for i in range(0, len(all_completed), batch_size):
-                    batch = all_completed[i:i+batch_size]
-                    match_ids = [m['match_id'] for m in batch]
 
-                    results = x_calculator.batch_calculate(match_ids)
+                def _update_prog(done, total):
+                    prog.progress(min(done / total, 1.0))
 
-                    for r in results:
-                        if r.get('status') == 'success':
-                            try:
-                                connector.save_x_value(r)
-                                success += 1
-                            except:
-                                pass
-
-                    # 收集这一批的记录
-                    batch_records: dict[tuple, list[MatchRecord]] = {}
-                    for md, r in zip(batch, results):
-                        try:
-                            x_val = r.get('x_value', 0.0) if r.get('status') == 'success' else 0.0
-                            league_info = {
-                                'id': md.get('league_id'),
-                                'league_name_tw': league_name_map.get(md.get('league_id'), ''),
-                                'country': '',
-                                'league_id': md.get('league_id')
-                            }
-                            lid_b = sync_league_to_system_b(store, connector, league_info)
-                            sid_b = sync_season_to_system_b(store, lid_b, md.get('season', '2024-2025'))
-                            record = MatchRecord(
-                                round_num=int(md.get('round_name', '1').replace('R_', '')),
-                                home_team=md.get('home_team', ''),
-                                away_team=md.get('away_team', ''),
-                                x_value=x_val,
-                                settlement='', score=md.get('score_ft', ''),
-                                link=r.get('movement_url', ''),
-                                play_type='HDP',
-                                target_team=r.get('target_team', ''),
-                            )
-                            SettlementCalculator().calculate([record])
-                            key = (sid_b, 'HDP', 'Early')
-                            if key not in batch_records:
-                                batch_records[key] = []
-                            batch_records[key].append(record)
-                            imported += 1
-                        except Exception as e:
-                            logger.error(f"导入失败: {e}")
-
-                    # 批量写入
-                    for (sid, pt, tm), recs in batch_records.items():
-                        try:
-                            store.upsert_match_records(sid, pt, tm, recs)
-                        except Exception as e:
-                            logger.error(f"批量写入失败: {e}")
-
-                    prog.progress(min((i + batch_size) / len(all_completed), 1.0))
+                result = import_matches_to_system_b(
+                    store, connector, all_matches,
+                    progress_callback=_update_prog,
+                )
+                success = result['x_success']
+                imported = result['imported']
 
                 st.success(f"🎉 完整同步完成！计算 {success} 条X值，导入 {imported} 条记录到系统B")
                 st.info("💡 接下来请点击「运行ETL」生成报表，然后前往「报表看板」查看决策信号。")
-            elif all_pending:
-                st.warning("比赛数据已同步，但赔率尚未爬取完成。请等待爬虫结束后再次点击「仅导入到系统B」。")
             else:
                 st.warning("暂无数据可导入。")
 
@@ -462,8 +589,8 @@ def render():
             st.success("✅ 处理完成，可再次点击按钮执行新的同步。")
             if st.button("🔄 再来一次", key="btn_reset_sync"):
                 st.session_state.sync_step = None
-                st.rerun()
-                st.session_state.sync_step = None
+                st.session_state.sync_busy = False
+                st.session_state.sync_errors = []
                 st.rerun()
     else:
         st.warning("请先添加关注的联赛赛季")

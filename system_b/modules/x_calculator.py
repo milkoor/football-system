@@ -240,6 +240,21 @@ class XValueCalculator:
             "has_star_mark": has_star_mark,
         }
 
+    def calculate_from_odds_data(
+        self,
+        match_id: int,
+        movements: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Calculate X value from pre-fetched odds data (avoids double fetch)"""
+        if not movements:
+            return {
+                "match_id": match_id,
+                "status": "no_data",
+                "calculation_note": "No odds data",
+                "x_value": None,
+            }
+        return self._calculate_x_value(match_id, movements)
+
     def batch_calculate(
         self,
         match_ids: List[int],

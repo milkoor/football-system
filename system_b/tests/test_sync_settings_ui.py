@@ -3,46 +3,43 @@
 import os
 
 
-def test_settings_page_has_sync_section():
-    """验证设置页面包含自动同步相关中文字符串"""
-    settings_py_path = os.path.join(
+def test_sync_page_has_auto_sync_section():
+    """验证数据导入页面包含自动同步相关中文字符串"""
+    page_path = os.path.join(
         os.path.dirname(__file__),
-        "../original_pages/settings.py"
+        "../original_pages/data_importer.py"
     )
 
-    with open(settings_py_path, "r", encoding="utf-8") as f:
+    with open(page_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    has_auto_sync = "自动同步" in content
-    has_timed_sync = "定时同步" in content
-
-    assert has_auto_sync or has_timed_sync, \
-        "设置页面应包含'自动同步'或'定时同步'相关文字"
+    assert "自动同步设定" in content, \
+        "数据导入页面应包含'自动同步设定'相关文字"
 
 
-def test_settings_page_reads_sync_enabled():
-    """验证设置页面源码包含 sync_enabled"""
-    settings_py_path = os.path.join(
+def test_sync_page_reads_auto_enable():
+    """验证数据导入页面源码包含启用自动同步"""
+    page_path = os.path.join(
         os.path.dirname(__file__),
-        "../original_pages/settings.py"
+        "../original_pages/data_importer.py"
     )
 
-    with open(settings_py_path, "r", encoding="utf-8") as f:
+    with open(page_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "sync_enabled" in content, \
-        "设置页面应引用 sync_enabled"
+    assert "启用自动同步" in content, \
+        "数据导入页面应引用启用自动同步"
 
 
-def test_settings_page_reads_sync_interval():
-    """验证设置页面源码包含 sync_interval_hours"""
-    settings_py_path = os.path.join(
+def test_sync_page_reads_sync_interval():
+    """验证数据导入页面源码包含同步间隔设置"""
+    page_path = os.path.join(
         os.path.dirname(__file__),
-        "../original_pages/settings.py"
+        "../original_pages/data_importer.py"
     )
 
-    with open(settings_py_path, "r", encoding="utf-8") as f:
+    with open(page_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "sync_interval_hours" in content, \
-        "设置页面应引用 sync_interval_hours"
+    assert "同步间隔" in content, \
+        "数据导入页面应引用同步间隔"

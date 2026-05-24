@@ -39,6 +39,13 @@ class TestSyncScheduler:
         settings.sync_interval_hours = 24
         return settings
 
+    @pytest.fixture
+    def mock_store(self):
+        """创建mock ConfigStore"""
+        store = Mock()
+        store.upsert_match_records = Mock()
+        return store
+
     def test_scheduler_created_when_sync_enabled(self, mock_connector, mock_follow_manager, mock_settings_enabled):
         """测试当同步启用时创建调度器"""
         scheduler = SyncScheduler(mock_connector, mock_follow_manager, mock_settings_enabled)
@@ -73,6 +80,19 @@ class TestSyncScheduler:
         assert mock_connector.sync_seasons_for_league.call_count == 2
         assert mock_connector.trigger_crawl.call_count == 2
         assert mock_connector.calculate_x_values.call_count == 2
+
+    def test_sync_job_with_store_imports_to_system_b(self, mock_connector, mock_follow_manager, mock_settings_enabled, mock_store):
+        """测试带store的同步任务会触发System B导入"""
+        mock_follow_manager.get_all.return_value = [
+            {"league_id": 1, "season_label": "2025-2026", "league_name": "英超"}
+        ]
+
+        scheduler = SyncScheduler(mock_connector, mock_follow_manager, mock_settings_enabled, store=mock_store)
+
+        # mock _import_to_system_b to avoid complex dependency chain
+        with patch.object(scheduler, '_import_to_system_b') as mock_import:
+            scheduler.run_sync_job()
+            mock_import.assert_called_once_with(1, '2025-2026', '英超')
 
     def test_sync_job_handles_empty_follow_list(self, mock_connector, mock_follow_manager, mock_settings_enabled):
         """测试同步任务处理空关注名单的情况"""

@@ -1,7 +1,7 @@
 # 数据库 Schema 文档
 
-**版本**: 1.0.0
-**更新日期**: 2026-04-12
+**版本**: 1.2.0
+**更新日期**: 2026-05-24
 **数据库**: PostgreSQL
 
 ---
@@ -78,6 +78,11 @@
 | retry_count | INTEGER | DEFAULT 0 | 重试次数 |
 | error_message | TEXT | | 错误信息 |
 | last_synced | TIMESTAMP | DEFAULT NOW() | 最后同步时间 |
+| settlement | VARCHAR(50) | | 结算结果文字（赢/赢半/走水/输半/输） |
+| settlement_value | FLOAT | DEFAULT 0.0 | 结算值（1.0=全赢/全输, 0.5=半赢/半输） |
+| settlement_direction | VARCHAR(20) | | 结算方向（win/lose） |
+| home_away_direction | VARCHAR(20) | | 主客方向（home/away） |
+| target_team | VARCHAR(200) | | 结算目标队伍 |
 
 **索引：**
 - `idx_match_league` (league_id, season)
@@ -156,6 +161,8 @@
 | league_id | INTEGER | | 联赛 ID |
 | season_label | VARCHAR(50) | | 赛季标签 |
 | status | VARCHAR(20) | DEFAULT 'pending' | 状态 |
+| job_type | VARCHAR(50) | DEFAULT 'crawl_odds' | 任务类型（sync_schedule/crawl_odds/calculate_x） |
+| match_ids | TEXT | | JSON 格式的比赛 ID 列表 |
 | total_matches | INTEGER | DEFAULT 0 | 总场次 |
 | completed_matches | INTEGER | DEFAULT 0 | 已完成 |
 | failed_matches | INTEGER | DEFAULT 0 | 失败 |

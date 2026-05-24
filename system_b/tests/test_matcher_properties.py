@@ -122,11 +122,12 @@ def test_property15_unmatched_team_detection(
     for tg in team_groups:
         all_known.update(tg.teams)
 
-    all_target_teams: set[str] = {
-        rec.target_team for rec in records if rec.target_team
-    }
+    all_participants: set[str] = set()
+    for rec in records:
+        all_participants.add(rec.home_team)
+        all_participants.add(rec.away_team)
 
-    expected_unmatched = all_target_teams - all_known
+    expected_unmatched = all_participants - all_known
 
     assert unmatched == expected_unmatched, (
         f"未匹配隊伍不一致：\n"

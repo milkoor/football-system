@@ -1,9 +1,46 @@
 [
   {
-    "league_id": 2112,
-    "league_name": "欧洲 - 西丁",
-    "season_label": "2024-2025",
+    "league_id": 14823,
+    "league_name": "欧洲 - 意甲",
     "country": "欧洲",
-    "added_at": null
+    "added_at": null,
+    "seasons": [
+      "2025-2026",
+      "2024-2025"
+    ],
+    "group_mapping": {},
+    "season_groups": {
+      "2025-2026": {
+        "0": "全部"
+      },
+      "2024-2025": {
+        "0": "全部"
+      }
+    }
+  },
+  {
+    "league_id": 15430,
+    "league_name": "亚洲 - 日職聯",
+    "country": "亚洲",
+    "added_at": null,
+    "seasons": [
+      "2026",
+      "2025"
+    ],
+    "group_mapping": {
+      "3540": "0",
+      "3541": "0",
+      "0": "0"
+    },
+    "season_groups": {
+      "2026": {
+        "3540": "東區",
+        "3541": "西區",
+        "0": "全部"
+      },
+      "2025": {
+        "0": "全部"
+      }
+    }
   }
 ]

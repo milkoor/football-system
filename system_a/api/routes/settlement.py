@@ -1,9 +1,9 @@
 """结算相关路由"""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Dict, Any
 
 from config.database import get_db, SessionLocal
@@ -27,8 +27,7 @@ class MatchSettlementResponse(BaseModel):
     target_team: Optional[str] = None
     error: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BatchSettlementResponse(BaseModel):
@@ -108,8 +107,8 @@ async def get_match_settlement(
 @router.post("/matches/{match_id}/score")
 async def update_match_score(
     match_id: int,
-    score_ft: str = ...,  # 必填，如 "2-1"
-    score_ht: Optional[str] = None,  # 可选，如 "1-0"
+    score_ft: str = Body(..., description="全场比分，如 2-1"),
+    score_ht: Optional[str] = Body(None, description="半场比分，如 1-0"),
     db: Session = Depends(get_db),
 ):
     """更新比赛比分并自动结算

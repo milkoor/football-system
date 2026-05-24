@@ -7,6 +7,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from typing import Optional
 
+from utils.system_a_mapper import import_matches_to_system_b
+
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "auto_sync_config.json")
@@ -31,10 +33,11 @@ def _save_config(config: dict):
 class SyncScheduler:
     """自动同步调度器"""
 
-    def __init__(self, connector, follow_manager, settings):
+    def __init__(self, connector, follow_manager, settings, store=None):
         self.connector = connector
         self.follow_manager = follow_manager
         self.settings = settings
+        self.store = store
         self.scheduler: Optional[BackgroundScheduler] = None
 
         # 从运行时配置覆盖 env 设置
@@ -109,9 +112,13 @@ class SyncScheduler:
                     logger.debug(f"触发爬取: league_id={league_id}, season={season_label}")
                     self.connector.trigger_crawl(league_id, season_label)
 
-                    # 计算X值
-                    logger.debug(f"计算X值: league_id={league_id}, season={season_label}")
-                    self.connector.calculate_x_values(league_id, season_label)
+                    # 计算并导入X值。如果挂了 store，统一通过 _import_to_system_b 完成
+                    # （内部会调 batch_calculate + save_x_value），避免重复计算
+                    if self.store:
+                        self._import_to_system_b(league_id, season_label, league_name)
+                    else:
+                        logger.debug(f"计算X值: league_id={league_id}, season={season_label}")
+                        self.connector.calculate_x_values(league_id, season_label)
 
                     logger.info(f"同步完成: {league_name} - {season_label}")
                 except Exception as e:
@@ -121,6 +128,42 @@ class SyncScheduler:
             logger.info("所有同步任务完成")
         except Exception as e:
             logger.error(f"自动同步任务失败: {str(e)}")
+
+    def _import_to_system_b(self, league_id, season_label, league_name):
+        """将System A的比赛和X值导入System B本地SQLite"""
+
+        try:
+            # 分页获取所有比赛，避免单次请求过大
+            matches = []
+            page = 1
+            page_size = 1000  # 使用较小的分页大小，平衡请求次数和性能
+
+            while True:
+                mr = self.connector.get_matches(
+                    league_id=league_id, season=season_label,
+                    crawl_status='completed', page=page, page_size=page_size,
+                )
+                page_matches = mr.get('matches') or mr.get('data') or []
+                if not page_matches:
+                    break
+                matches.extend(page_matches)
+                if len(page_matches) < page_size:
+                    break
+                page += 1
+
+            if not matches:
+                logger.info(f"没有需要导入的比赛: {league_name}")
+                return
+
+            result = import_matches_to_system_b(
+                self.store, self.connector, matches,
+            )
+            logger.info(
+                f"System B导入完成: {league_name}, "
+                f"导入 {result['imported']} 条记录"
+            )
+        except Exception as e:
+            logger.error(f"System B导入失败 {league_name}: {e}")
 
     def get_scheduler(self) -> Optional[BackgroundScheduler]:
         """获取调度器实例"""

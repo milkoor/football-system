@@ -1,7 +1,7 @@
 """系统 A：配置文件"""
 
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -11,14 +11,14 @@ class Settings(BaseSettings):
     # 数据库
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://football:football_secure_pass@localhost:5432/football_data"
+        "sqlite:///./football_data.db"
     )
 
     # API 配置
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_title: str = "足球数据系统 A API"
-    api_version: str = "1.0.0"
+    api_version: str = "1.2.0"
 
     # 爬虫配置
     crawl_concurrency: int = 3
@@ -41,9 +41,7 @@ class Settings(BaseSettings):
     # 日志
     log_level: str = "INFO"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra='ignore')
 
 
 @lru_cache()

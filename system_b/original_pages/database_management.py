@@ -126,16 +126,14 @@ def render():
     elif reset_step == 2:
         with st.spinner("正在清空資料..."):
             try:
-                # 清空 System B SQLite
+                # 先清空 System A，失败会抛异常并阻止 System B 清空，避免半清状态
+                from modules.data_connector import get_connector
+                get_connector().clear_sync_data()
+
                 for t in ['decision_results', 'etl_runs', 'match_records',
                           'league_group_teams', 'season_instances', 'leagues', 'global_groups']:
                     store._conn.execute(f"DELETE FROM {t}")
                 store._conn.commit()
-
-                # 清空 System A PostgreSQL
-                from modules.data_connector import get_connector
-                conn = get_connector()
-                conn._request("POST", "/api/leagues/clear-all")
 
                 st.success("✅ 所有資料已清空！")
                 st.session_state.reset_step = 0

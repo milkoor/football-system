@@ -259,8 +259,8 @@ class TestLocalSettlementFunctions:
         result = calculator.calculate_hdp_settlement(
             score="2-1", handicap_raw="半球", home_rate=0.85, away_rate=1.00
         )
-        # 主队让球，净胜1 > 0.5，结果应该是客赢（即下主队的赢）
-        assert result["settlement"] == "客赢"
+        # 主队让球，净胜1 > 0.5，结果应该是客贏（即下主队的赢）
+        assert result["settlement"] == "客贏"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "win"
         assert result["home_away_direction"] == "home"
@@ -272,8 +272,8 @@ class TestLocalSettlementFunctions:
         result = calculator.calculate_hdp_settlement(
             score="1-2", handicap_raw="*半球", home_rate=1.00, away_rate=0.85
         )
-        # 客队让球，客队净胜1 > 0.5，结果应该是主赢
-        assert result["settlement"] == "主赢"
+        # 客队让球，客队净胜1 > 0.5，结果应该是主贏
+        assert result["settlement"] == "主贏"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "win"
         assert result["home_away_direction"] == "away"
@@ -283,8 +283,8 @@ class TestLocalSettlementFunctions:
         result = calculator.calculate_hdp_settlement(
             score="1-0", handicap_raw="平/半", home_rate=0.85, away_rate=1.00
         )
-        # 主队让球，净胜1 > 0.25，结果应该是客赢
-        assert result["settlement"] == "客赢"
+        # 主队让球，净胜1 > 0.25，结果应该是客贏
+        assert result["settlement"] == "客贏"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "win"
         assert result["home_away_direction"] == "home"
@@ -296,41 +296,41 @@ class TestLocalSettlementFunctions:
         result = calculator.calculate_hdp_settlement(
             score="1-1", handicap_raw="半球", home_rate=0.85, away_rate=1.00
         )
-        # 主队让球，净胜0 < 0.5，结果应该是客输
-        assert result["settlement"] == "客输"
+        # 主队让球，净胜0 < 0.5，结果应该是客輸
+        assert result["settlement"] == "客輸"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "lose"
         assert result["home_away_direction"] == "home"
 
     def test_calculate_ou_settlement_over_win(self, calculator: AutoSettlementCalculator):
-        """测试大小球计算：盘口2.5，总进球3，应大赢"""
+        """测试大小球计算：盘口2.5，总进球3，应大贏"""
         result = calculator.calculate_ou_settlement(score="2-1", handicap_raw="2.5")
-        assert result["settlement"] == "大赢"
+        assert result["settlement"] == "大贏"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "win"
 
     def test_calculate_ou_settlement_under_win(self, calculator: AutoSettlementCalculator):
-        """测试大小球计算：盘口2.5，总进球2，应小赢"""
+        """测试大小球计算：盘口2.5，总进球2，应小贏"""
         result = calculator.calculate_ou_settlement(score="1-1", handicap_raw="2.5")
-        assert result["settlement"] == "小赢"
+        assert result["settlement"] == "小贏"
         assert result["settlement_value"] == 1.0
         assert result["settlement_direction"] == "win"
 
     def test_calculate_ou_settlement_over_half_win(
         self, calculator: AutoSettlementCalculator
     ):
-        """测试大小球计算：盘口2.75，总进球3，应大赢半"""
+        """测试大小球计算：盘口2.75，总进球3，应大贏半"""
         result = calculator.calculate_ou_settlement(score="2-1", handicap_raw="2.75")
-        assert result["settlement"] == "大赢半"
+        assert result["settlement"] == "大贏半"
         assert result["settlement_value"] == 0.5
         assert result["settlement_direction"] == "win"
 
     def test_calculate_ou_settlement_under_half_lose(
         self, calculator: AutoSettlementCalculator
     ):
-        """测试大小球计算：盘口2.25，总进球2，应小输半"""
+        """测试大小球计算：盘口2.25，总进球2，应小輸半"""
         result = calculator.calculate_ou_settlement(score="1-1", handicap_raw="2.25")
-        assert result["settlement"] == "小输半"
+        assert result["settlement"] == "小輸半"
         assert result["settlement_value"] == 0.5
         assert result["settlement_direction"] == "lose"
 
